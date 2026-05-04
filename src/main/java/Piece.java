@@ -1,5 +1,5 @@
 public class Piece {
-    private char symbol; // x, o, X, O
+    private char symbol;
 
     public Piece(char symbol) {
         this.symbol = symbol;
@@ -9,25 +9,19 @@ public class Piece {
         return symbol;
     }
 
-    public void setSymbol(char symbol) {
-        this.symbol = symbol;
-    }
-
     public boolean isKing() {
-        return symbol == 'X' || symbol == 'O';
+        return Character.isUpperCase(symbol);
     }
 
     public boolean belongsToPlayer(char player) {
-        if (player == 'x') {
-            return symbol == 'x' || symbol == 'X';
-        }
-        return symbol == 'o' || symbol == 'O';
+        return Character.toLowerCase(symbol) == Character.toLowerCase(player);
     }
 
     public boolean isOpponent(char player) {
-        if (player == 'x') {
-            return symbol == 'o' || symbol == 'O';
-        }
-        return symbol == 'x' || symbol == 'X';
+        return Character.toLowerCase(symbol) != Character.toLowerCase(player);
+    }
+
+    public void makeKing() {
+        symbol = Character.toUpperCase(symbol);
     }
 }

@@ -1,10 +1,12 @@
 public class Player {
-    private char symbol;   // x or o
-    private String name;   // Player 1 / Player 2
+    private char symbol;
+    private String name;
+    private boolean bot;
 
-    public Player(char symbol, String name) {
+    public Player(char symbol, String name, boolean bot) {
         this.symbol = symbol;
         this.name = name;
+        this.bot = bot;
     }
 
     public char getSymbol() {
@@ -13,5 +15,9 @@ public class Player {
 
     public String getName() {
         return name;
+    }
+
+    public boolean isBot() {
+        return bot;
     }
 }
