@@ -6,6 +6,20 @@ public class Board {
         initializeBoard();
     }
 
+    public Board(Board other) {
+        board = new Piece[8][8];
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                Piece otherPiece = other.board[row][col];
+                if (otherPiece != null) {
+                    board[row][col] = new Piece(otherPiece.getSymbol());
+                } else {
+                    board[row][col] = null;
+                }
+            }
+        }
+    }
+
     private void initializeBoard() {
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {

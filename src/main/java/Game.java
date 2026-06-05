@@ -1,14 +1,46 @@
+import java.util.ArrayList;
+import java.util.List;
+
 public class Game {
     private Board board;
     private Player playerX;
     private Player playerO;
     private Player currentPlayer;
 
+    public static class Move {
+        private final Position from;
+        private final Position to;
+
+        public Move(Position from, Position to) {
+            this.from = from;
+            this.to = to;
+        }
+
+        public Position getFrom() {
+            return from;
+        }
+
+        public Position getTo() {
+            return to;
+        }
+    }
+
     public Game() {
+        this(false, false);
+    }
+
+    public Game(boolean xBot, boolean oBot) {
         board = new Board();
-        playerX = new Player('x', "Player X", false);
-        playerO = new Player('o', "Player O", false);
+        playerX = new Player('x', "Player X", xBot);
+        playerO = new Player('o', "Player O", oBot);
         currentPlayer = playerX;
+    }
+
+    public Game(Game other) {
+        board = new Board(other.board);
+        playerX = new Player(other.playerX.getSymbol(), other.playerX.getName(), other.playerX.isBot());
+        playerO = new Player(other.playerO.getSymbol(), other.playerO.getName(), other.playerO.isBot());
+        currentPlayer = other.currentPlayer == other.playerX ? playerX : playerO;
     }
 
     public Board getBoard() {
@@ -135,6 +167,74 @@ public class Game {
         }
 
         return null;
+    }
+
+    public List<Move> getValidMoves(char player) {
+        List<Move> captureMoves = new ArrayList<>();
+        List<Move> normalMoves = new ArrayList<>();
+
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                Piece piece = board.getPiece(row, col);
+
+                if (piece == null || !piece.belongsToPlayer(player)) {
+                    continue;
+                }
+
+                int[] rowDirections = {-1, -1, 1, 1};
+                int[] colDirections = {-1, 1, -1, 1};
+
+                for (int i = 0; i < 4; i++) {
+                    int newRow = row + rowDirections[i];
+                    int newCol = col + colDirections[i];
+
+                    if (!board.isInsideBoard(newRow, newCol)) {
+                        continue;
+                    }
+
+                    if (!board.isEmpty(newRow, newCol)) {
+                        continue;
+                    }
+
+                    if (piece.isKing()
+                            || piece.getSymbol() == 'x' && newRow < row
+                            || piece.getSymbol() == 'o' && newRow > row) {
+                        normalMoves.add(new Move(new Position(row, col), new Position(newRow, newCol)));
+                    }
+                }
+
+                int[] captureRows = {-2, -2, 2, 2};
+                int[] captureCols = {-2, 2, -2, 2};
+
+                for (int i = 0; i < 4; i++) {
+                    int newRow = row + captureRows[i];
+                    int newCol = col + captureCols[i];
+
+                    int middleRow = row + captureRows[i] / 2;
+                    int middleCol = col + captureCols[i] / 2;
+
+                    if (!board.isInsideBoard(newRow, newCol)) {
+                        continue;
+                    }
+
+                    if (!board.isEmpty(newRow, newCol)) {
+                        continue;
+                    }
+
+                    Piece middlePiece = board.getPiece(middleRow, middleCol);
+
+                    if (middlePiece != null && middlePiece.isOpponent(player)) {
+                        if (piece.isKing()
+                                || piece.getSymbol() == 'x' && newRow < row
+                                || piece.getSymbol() == 'o' && newRow > row) {
+                            captureMoves.add(new Move(new Position(row, col), new Position(newRow, newCol)));
+                        }
+                    }
+                }
+            }
+        }
+
+        return captureMoves.isEmpty() ? normalMoves : captureMoves;
     }
 
     public boolean playerMustCapture() {
