@@ -1,114 +1,104 @@
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.net.Socket;
 import java.util.HashMap;
-import java.util.Random;
+import java.util.Map;
+import java.util.UUID;
 
-/** Room storage and membership are protected by the Room class lock. */
+/** One authoritative game. Each synchronized method finishes before another move begins. */
 public class Room {
-    // Shared by all workers: room code -> Room object. Lost when the server stops.
-    private static final HashMap<String, Room> rooms = new HashMap<>();
-    private static final Random random = new Random();
-    private static final String CODE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-    // These fields belong to ONE room, unlike the shared static map above.
+    private static final Map<String, Room> rooms = new HashMap<>();
     private final String code;
-    private final Socket firstPlayer;
-    private final PrintWriter firstOutput;
-    // null until a second player joins. Outputs let us notify both players later.
-    private Socket secondPlayer;
-    private PrintWriter secondOutput;
+    private final DamkaServer.Peer first;
+    private DamkaServer.Peer second;
+    private final Game game = new Game();
+    private Position forcedCapture;
+    private boolean finished;
 
-    // The constructor stores the room's data. createRoom() generates its code.
-    private Room(String code, Socket firstPlayer, PrintWriter firstOutput) {
+    private Room(String code, DamkaServer.Peer first) {
         this.code = code;
-        this.firstPlayer = firstPlayer;
-        this.firstOutput = firstOutput;
+        this.first = first;
     }
 
-    public String getCode() {
-        return code;
-    }
-
-    // static: call using Room.createRoom(), without an existing room object.
-    // synchronized: only one worker can run a locked Room operation at a time.
-    public static synchronized Room createRoom(Socket player, PrintWriter output) {
+    public static synchronized Room createRoom(DamkaServer.Peer player) {
         String code;
-        // Generate six characters and retry if another room already has that code.
-        do {
-            StringBuilder candidate = new StringBuilder();
-            for (int index = 0; index < 6; index++) {
-                candidate.append(CODE_CHARACTERS.charAt(random.nextInt(CODE_CHARACTERS.length())));
-            }
-            code = candidate.toString();
-        } while (rooms.containsKey(code));
-
-        Room room = new Room(code, player, output);
-        // Register the room before acknowledging it to the first player.
+        do { code = UUID.randomUUID().toString().substring(0, 6).toUpperCase(); }
+        while (rooms.containsKey(code));
+        Room room = new Room(code, player);
         rooms.put(code, room);
-        output.println("ROOM_CREATED " + code);
+        player.send("ROOM_CREATED " + code + " x");
+        room.sendState();
         return room;
     }
 
-    // Return the joined room, or null after sending an error to the requester.
-    public static synchronized Room joinRoom(String message, Socket player, PrintWriter output) {
-        // Require exactly JOIN_ROOM, a space, and six uppercase letters or digits.
-        if (!message.matches("JOIN_ROOM [A-Z0-9]{6}")) {
-            output.println("ERROR Invalid room code.");
-            return null;
-        }
-        // Skip the length of "JOIN_ROOM " and keep the remaining code.
-        String code = message.substring("JOIN_ROOM ".length());
-        // get() returns null if no room is registered with this code.
-        Room room = rooms.get(code);
-        if (room == null) {
-            output.println("ERROR Room not found.");
-            return null;
-        }
-        // A stored second connection means both seats are occupied.
-        if (room.secondPlayer != null) {
-            output.println("ERROR Room is full.");
-            return null;
-        }
-
-        room.secondPlayer = player;
-        room.secondOutput = output;
-        // Acknowledge joining before notifying either player that the room is ready.
-        output.println("ROOM_JOINED " + code);
-        room.firstOutput.println("ROOM_READY " + code);
-        output.println("ROOM_READY " + code);
-        if (room.firstOutput.checkError() || output.checkError()) {
-            room.disconnect();
-        }
-        return room;
-    }
-
-    public void disconnect() {
-        // Use the same lock as the static synchronized creation/joining methods.
-        synchronized (Room.class) {
-            // Both workers may detect the same closed room; clean it up only once.
-            if (rooms.get(code) != this) {
-                return;
+    public static Room joinRoom(String code, DamkaServer.Peer player) {
+        Room room;
+        synchronized (Room.class) { room = rooms.get(code); }
+        if (room == null) { player.send("ERROR Room not found"); return null; }
+        synchronized (room) {
+            if (room.finished || room.second != null) {
+                player.send("ERROR Room unavailable"); return null;
             }
-            // Remove the room, notify the remaining player, and close both sockets.
-            // Closing sockets also wakes workers blocked in readLine().
-            rooms.remove(code);
-            firstOutput.println("ROOM_CLOSED " + code);
-            if (secondOutput != null) {
-                secondOutput.println("ROOM_CLOSED " + code);
-            }
-            closeSocket(firstPlayer);
-            if (secondPlayer != null) {
-                closeSocket(secondPlayer);
-            }
+            room.second = player;
+            player.send("ROOM_JOINED " + code + " o");
+            room.sendState();
+            return room;
         }
     }
 
-    private static void closeSocket(Socket socket) {
+    public synchronized void move(DamkaServer.Peer player, String[] parts) {
+        if (finished || second == null) { player.send("ERROR Match is not active"); return; }
+        char symbol = player == first ? 'x' : 'o';
+        if (game.getCurrentPlayer().getSymbol() != symbol) {
+            player.send("ERROR It is not your turn"); return;
+        }
+        if (parts.length != 5) { player.send("ERROR Use MOVE fromRow fromCol toRow toCol"); return; }
         try {
-            socket.close();
-        } catch (IOException exception) {
-            System.out.println("Could not close player connection: " + exception.getMessage());
+            int fr = Integer.parseInt(parts[1]), fc = Integer.parseInt(parts[2]);
+            int tr = Integer.parseInt(parts[3]), tc = Integer.parseInt(parts[4]);
+            if (!game.getBoard().isInsideBoard(fr, fc) || !game.getBoard().isInsideBoard(tr, tc)) {
+                player.send("ERROR Coordinates must be between 0 and 7"); return;
+            }
+            if (forcedCapture != null && (fr != forcedCapture.getRow() || fc != forcedCapture.getCol())) {
+                player.send("ERROR Continue capturing with the same piece"); return;
+            }
+            if (!game.move(new Position(fr, fc), new Position(tr, tc))) {
+                player.send("ERROR Illegal move"); return;
+            }
+            forcedCapture = game.getCurrentPlayer().getSymbol() == symbol ? new Position(tr, tc) : null;
+            String winner = game.getWinner();
+            if (winner != null) {
+                finished = true;
+                sendState();
+                end(winner.contains("Player X") ? 'x' : 'o', "NO_MOVES");
+            } else { sendState(); }
+        } catch (NumberFormatException exception) { player.send("ERROR Coordinates must be numbers"); }
+    }
+
+    private void sendState() {
+        StringBuilder board = new StringBuilder();
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                Piece piece = game.getBoard().getPiece(row, col);
+                board.append(piece == null ? '.' : piece.getSymbol());
+            }
         }
+        String state = "STATE " + (finished ? "FINISHED" : second == null ? "WAITING" : "ACTIVE")
+                + " " + game.getCurrentPlayer().getSymbol()
+                + " " + (forcedCapture == null ? -1 : forcedCapture.getRow())
+                + " " + (forcedCapture == null ? -1 : forcedCapture.getCol()) + " " + board;
+        first.send(state);
+        if (second != null) { second.send(state); }
+    }
+
+    public synchronized void leave(DamkaServer.Peer player, String reason) {
+        if (finished) { return; }
+        finished = true;
+        end(second == null ? '-' : player == first ? 'o' : 'x', reason);
+    }
+
+    private void end(char winner, String reason) {
+        synchronized (Room.class) { rooms.remove(code); }
+        first.send("GAME_OVER " + winner + " " + reason);
+        if (second != null) { second.send("GAME_OVER " + winner + " " + reason); }
+        first.close();
+        if (second != null) { second.close(); }
     }
 }
