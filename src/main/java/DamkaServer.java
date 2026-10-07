@@ -12,40 +12,49 @@ public class DamkaServer {
     public static void main(String[] args) throws IOException {
         try (ServerSocket server = new ServerSocket(5000)) {
             System.out.println("Server listening on port 5000. Press Ctrl+C to stop.");
-
             while (true) {
-                try (Socket client = server.accept()) {
-                    client.setSoTimeout(5000);
-                    handleClient(client);
-                } catch (SocketTimeoutException exception) {
-                    System.out.println("Client did not send data in time. Connection closed.");
-                } catch (IOException exception) {
-                    System.out.println("Connection error: " + exception.getMessage());
-                }
+                Socket client = server.accept();
+                Thread worker = new Thread(() -> handleClient(client), "damka-client");
+                worker.start();
             }
         }
     }
 
-    private static void handleClient(Socket client) throws IOException {
-        BufferedReader input = new BufferedReader(
-                new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
-        PrintWriter output = new PrintWriter(
-                new OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8), true);
+    private static void handleClient(Socket client) {
+        Room room = null;
+        try (Socket connection = client) {
+            connection.setSoTimeout(5000);
+            BufferedReader input = new BufferedReader(
+                    new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
+            PrintWriter output = new PrintWriter(
+                    new OutputStreamWriter(connection.getOutputStream(), StandardCharsets.UTF_8), true);
 
-        String message;
-        while ((message = input.readLine()) != null) {
-            if ("CREATE_ROOM".equals(message)) {
-                Room room = Room.createRoom();
-                output.println("ROOM_CREATED " + room.getCode());
-            } else if ("JOIN_ROOM".equals(message) || message.startsWith("JOIN_ROOM ")) {
-                output.println(Room.joinRoom(message));
-            } else {
-                output.println("ERROR Unknown request. Use CREATE_ROOM or JOIN_ROOM <code>.");
+            String message;
+            while ((message = input.readLine()) != null) {
+                if (room != null) {
+                    output.println("ERROR You are already in a room.");
+                } else if ("CREATE_ROOM".equals(message)) {
+                    room = Room.createRoom(connection, output);
+                } else if ("JOIN_ROOM".equals(message) || message.startsWith("JOIN_ROOM ")) {
+                    room = Room.joinRoom(message, connection, output);
+                } else {
+                    output.println("ERROR Unknown request. Use CREATE_ROOM or JOIN_ROOM <code>.");
+                }
+                if (output.checkError()) {
+                    throw new IOException("Could not send response to client.");
+                }
+                if (room != null) {
+                    // A player may wait for their opponent longer than five seconds.
+                    connection.setSoTimeout(0);
+                }
             }
-
-            // PrintWriter suppresses write exceptions, so explicitly check delivery errors.
-            if (output.checkError()) {
-                throw new IOException("Could not send response to client.");
+        } catch (SocketTimeoutException exception) {
+            System.out.println("Client did not send a request in time. Connection closed.");
+        } catch (IOException exception) {
+            System.out.println("Connection closed: " + exception.getMessage());
+        } finally {
+            if (room != null) {
+                room.disconnect();
             }
         }
     }

@@ -49,6 +49,20 @@ public class ServerConnectionCheck {
                 throw new IOException("Server returned a different room code.");
             }
             System.out.println(responsePrefix.trim() + ": " + code);
+            socket.setSoTimeout(0);
+            System.out.println("Waiting for the other player. Press Ctrl+C to disconnect.");
+
+            while ((response = input.readLine()) != null) {
+                if (response.equals("ROOM_READY " + code)) {
+                    System.out.println("ROOM_READY: " + code + " - both players are connected!");
+                } else if (response.equals("ROOM_CLOSED " + code)) {
+                    System.out.println("ROOM_CLOSED: the room has been closed.");
+                    return;
+                } else {
+                    throw new IOException("Unexpected room message: " + response);
+                }
+            }
+            System.out.println("Server disconnected.");
         }
     }
 }

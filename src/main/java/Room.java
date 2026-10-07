@@ -1,49 +1,32 @@
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.net.Socket;
 import java.util.HashMap;
 import java.util.Random;
 
-/** A room is kept in server memory until the server stops. */
+/** Room storage and membership are protected by the Room class lock. */
 public class Room {
     private static final HashMap<String, Room> rooms = new HashMap<>();
     private static final Random random = new Random();
     private static final String CODE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
     private final String code;
-    private boolean secondPlayerJoined = false;
+    private final Socket firstPlayer;
+    private final PrintWriter firstOutput;
+    private Socket secondPlayer;
+    private PrintWriter secondOutput;
 
-    public Room(String code) {
+    private Room(String code, Socket firstPlayer, PrintWriter firstOutput) {
         this.code = code;
-    }
-
-    public boolean join() {
-        if (secondPlayerJoined) {
-            return false;
-        }
-        secondPlayerJoined = true;
-        return true;
+        this.firstPlayer = firstPlayer;
+        this.firstOutput = firstOutput;
     }
 
     public String getCode() {
         return code;
     }
 
-    public static String joinRoom(String message) {
-        if (!message.matches("JOIN_ROOM [A-Z0-9]{6}")) {
-            return "ERROR Invalid room code.";
-        }
-
-        // Skip "JOIN_ROOM " to extract only the room code.
-        String code = message.substring("JOIN_ROOM ".length());
-        Room room = rooms.get(code);
-        if (room == null) {
-            return "ERROR Room not found.";
-        }
-        if (!room.join()) {
-            return "ERROR Room is full.";
-        }
-        return "ROOM_JOINED " + code;
-    }
-
-    public static Room createRoom() {
+    public static synchronized Room createRoom(Socket player, PrintWriter output) {
         String code;
         do {
             StringBuilder candidate = new StringBuilder();
@@ -53,8 +36,63 @@ public class Room {
             code = candidate.toString();
         } while (rooms.containsKey(code));
 
-        Room room = new Room(code);
+        Room room = new Room(code, player, output);
         rooms.put(code, room);
+        output.println("ROOM_CREATED " + code);
         return room;
+    }
+
+    public static synchronized Room joinRoom(String message, Socket player, PrintWriter output) {
+        if (!message.matches("JOIN_ROOM [A-Z0-9]{6}")) {
+            output.println("ERROR Invalid room code.");
+            return null;
+        }
+        String code = message.substring("JOIN_ROOM ".length());
+        Room room = rooms.get(code);
+        if (room == null) {
+            output.println("ERROR Room not found.");
+            return null;
+        }
+        if (room.secondPlayer != null) {
+            output.println("ERROR Room is full.");
+            return null;
+        }
+
+        room.secondPlayer = player;
+        room.secondOutput = output;
+        // Acknowledge joining before notifying either player that the room is ready.
+        output.println("ROOM_JOINED " + code);
+        room.firstOutput.println("ROOM_READY " + code);
+        output.println("ROOM_READY " + code);
+        if (room.firstOutput.checkError() || output.checkError()) {
+            room.disconnect();
+        }
+        return room;
+    }
+
+    public void disconnect() {
+        synchronized (Room.class) {
+            // Both workers may detect the same closed room; clean it up only once.
+            if (rooms.get(code) != this) {
+                return;
+            }
+            rooms.remove(code);
+            firstOutput.println("ROOM_CLOSED " + code);
+            if (secondOutput != null) {
+                secondOutput.println("ROOM_CLOSED " + code);
+            }
+            closeSocket(firstPlayer);
+            if (secondPlayer != null) {
+                closeSocket(secondPlayer);
+            }
+        }
+    }
+
+    private static void closeSocket(Socket socket) {
+        try {
+            socket.close();
+        } catch (IOException exception) {
+            System.out.println("Could not close player connection: " + exception.getMessage());
+        }
     }
 }
