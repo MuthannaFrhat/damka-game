@@ -1,0 +1,34 @@
+.root {
+    -fx-font-family: "Segoe UI", "Arial", sans-serif;
+    -fx-font-size: 13px;
+    -fx-text-base-color: #26353b;
+    -fx-background-color: #f6f3ec;
+}
+.game-root { -fx-padding: 28; -fx-background-color: #f6f3ec; }
+.sidebar { -fx-padding: 16 16 16 0; }
+.title { -fx-font-size: 38px; -fx-font-weight: bold; -fx-text-fill: #263f36; }
+.muted { -fx-text-fill: #6f7b75; -fx-font-size: 12px; }
+.section-label { -fx-font-size: 10px; -fx-font-weight: bold; -fx-text-fill: #7b847c; }
+.room-label { -fx-text-fill: #6f7b75; -fx-font-size: 13px; }
+.turn-label { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #263f36; }
+.button {
+    -fx-padding: 11 16; -fx-background-radius: 9; -fx-cursor: hand;
+    -fx-font-weight: bold; -fx-background-color: #e8e8df; -fx-text-fill: #263f36;
+}
+.button:hover { -fx-background-color: #dcdfd3; }
+.primary-button { -fx-background-color: #31594b; -fx-text-fill: white; }
+.primary-button:hover { -fx-background-color: #244537; }
+.secondary-button { -fx-background-color: #e4e9df; -fx-text-fill: #31594b; }
+.secondary-button:hover { -fx-background-color: #d5dfce; }
+.quiet-button { -fx-background-color: transparent; -fx-text-fill: #6f7b75; -fx-padding: 8 0; }
+.quiet-button:hover { -fx-background-color: transparent; -fx-text-fill: #31594b; }
+.text-field, .combo-box {
+    -fx-background-color: white; -fx-background-radius: 8;
+    -fx-border-color: #d8ded3; -fx-border-radius: 8; -fx-padding: 8;
+}
+.text-field:focused { -fx-border-color: #53756a; }
+.board-frame {
+    -fx-padding: 12; -fx-background-color: #263f36; -fx-background-radius: 12;
+    -fx-effect: dropshadow(gaussian, rgba(32, 52, 42, 0.18), 18, 0, 0, 6);
+}
+.dialog-pane { -fx-padding: 16; }

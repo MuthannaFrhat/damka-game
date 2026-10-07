@@ -10,7 +10,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.control.Alert;
+import javafx.scene.control.Dialog;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.ButtonBar;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
@@ -60,8 +62,8 @@ public class DamkaFX extends Application {
         botMode = true;
 
         turnLabel = new Label("Turn: " + game.getCurrentPlayer().getName());
-        pvpButton = new Button("Online multiplayer");
-        botButton = new Button("Player vs Bot");
+        pvpButton = new Button("Play with a friend");
+        botButton = new Button("Play against BOT");
         difficultyBox = new ComboBox<>();
         difficultyBox.getItems().addAll("Easy", "Medium", "Hard");
         difficultyBox.setValue("Easy");
@@ -71,7 +73,9 @@ public class DamkaFX extends Application {
         difficultyControls.setVisible(false);
         difficultyControls.setManaged(false);
 
-        HBox modeButtons = new HBox(10, pvpButton, botButton);
+        VBox modeButtons = new VBox(10, pvpButton, botButton);
+        pvpButton.setMaxWidth(Double.MAX_VALUE);
+        botButton.setMaxWidth(Double.MAX_VALUE);
 
         serverHost = new TextField("localhost");
         serverHost.setPrefColumnCount(10);
@@ -83,9 +87,21 @@ public class DamkaFX extends Application {
         roomLabel = new Label("Local BOT mode");
         Button createRoom = new Button("Create room");
         Button joinRoom = new Button("Join room");
-        Button resign = new Button("Resign / Leave");
-        HBox networkControls = new HBox(8, new Label("Server:"), serverHost, serverPort,
-                createRoom, roomCode, joinRoom, resign);
+        Button resign = new Button("Leave match");
+        Button settings = new Button("Connection settings");
+        settings.getStyleClass().add("quiet-button");
+        settings.setOnAction(e -> showConnectionSettings(stage));
+        Label inviteHint = new Label("Create a room and share its code,\nor enter a friend's code below.");
+        inviteHint.setWrapText(true);
+        inviteHint.getStyleClass().add("muted");
+        createRoom.setMaxWidth(Double.MAX_VALUE);
+        createRoom.getStyleClass().add("primary-button");
+        joinRoom.getStyleClass().add("secondary-button");
+        resign.getStyleClass().add("quiet-button");
+        roomCode.setPrefColumnCount(6);
+        HBox joinControls = new HBox(8, roomCode, joinRoom);
+        javafx.scene.layout.HBox.setHgrow(roomCode, javafx.scene.layout.Priority.ALWAYS);
+        VBox networkControls = new VBox(12, inviteHint, createRoom, joinControls, resign, settings);
         networkControls.setVisible(false);
         networkControls.setManaged(false);
         pvpButton.setOnAction(e -> {
@@ -130,15 +146,16 @@ public class DamkaFX extends Application {
             }
         });
 
-        styleButton(pvpButton, "linear-gradient(#4A90E2, #357ABD)");
-        styleButton(botButton, "linear-gradient(#50E3C2, #2DB59C)");
-        difficultyBox.setStyle("-fx-font-weight: bold; -fx-pref-width: 120px;");
-        turnLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+        pvpButton.getStyleClass().add("primary-button");
+        botButton.getStyleClass().add("secondary-button");
+        turnLabel.getStyleClass().add("turn-label");
+        roomLabel.getStyleClass().add("room-label");
+        roomLabel.setWrapText(true);
 
         boardGrid = new GridPane();
         boardGrid.setPrefSize(TILE_SIZE * 8, TILE_SIZE * 8);
         boardGrid.setMaxSize(TILE_SIZE * 8, TILE_SIZE * 8);
-        boardGrid.setStyle("-fx-border-color: #888888; -fx-border-width: 4; -fx-border-radius: 10; -fx-background-radius: 10;");
+        boardGrid.getStyleClass().add("board-grid");
 
         animationPane = new Pane();
         animationPane.setPickOnBounds(false);
@@ -150,10 +167,27 @@ public class DamkaFX extends Application {
 
         drawBoard();
 
-        VBox root = new VBox(15, modeButtons, networkControls, roomLabel, difficultyControls, turnLabel, boardStack);
-        root.setStyle("-fx-padding: 20; -fx-background-color: linear-gradient(to bottom right, #ece9e6, #ffffff);");
-        modeButtons.setStyle("-fx-padding: 10;");
-        difficultyControls.setStyle("-fx-padding: 6;");
+        Label title = new Label("DAMKA");
+        title.getStyleClass().add("title");
+        Label subtitle = new Label("A good move changes everything.");
+        subtitle.getStyleClass().add("muted");
+        Label playLabel = new Label("CHOOSE YOUR GAME");
+        playLabel.getStyleClass().add("section-label");
+        VBox sidebar = new VBox(18, title, subtitle, playLabel, modeButtons,
+                networkControls, difficultyControls);
+        sidebar.getStyleClass().add("sidebar");
+        sidebar.setPrefWidth(260);
+        sidebar.setMinWidth(260);
+        sidebar.setMaxWidth(260);
+        Label boardHint = new Label("Select a piece, then choose its destination.");
+        boardHint.getStyleClass().add("muted");
+        StackPane boardFrame = new StackPane(boardStack);
+        boardFrame.getStyleClass().add("board-frame");
+        VBox match = new VBox(12, roomLabel, turnLabel, boardFrame, boardHint);
+        match.setAlignment(Pos.TOP_CENTER);
+        HBox root = new HBox(28, sidebar, match);
+        root.getStyleClass().add("game-root");
+        difficultyControls.setAlignment(Pos.CENTER_LEFT);
 
         // Toast / notification overlay
         toastPane = new StackPane();
@@ -165,9 +199,11 @@ public class DamkaFX extends Application {
         StackPane.setMargin(toastPane, new Insets(10, 0, 0, 0));
 
         Scene scene = new Scene(appRoot);
+        scene.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
 
         stage.setTitle("Damka Game");
         stage.setScene(scene);
+        stage.setResizable(false);
         stage.show();
         stage.setOnCloseRequest(e -> leaveOnline());
     }
@@ -182,9 +218,9 @@ public class DamkaFX extends Application {
                 Rectangle square = new Rectangle(TILE_SIZE, TILE_SIZE);
 
                 if ((row + col) % 2 == 0) {
-                    square.setFill(Color.BEIGE);
+                    square.setFill(Color.web("#eee4d2"));
                 } else {
-                    square.setFill(Color.SADDLEBROWN);
+                    square.setFill(Color.web("#53756a"));
                 }
 
                 StackPane cell = new StackPane();
@@ -197,7 +233,7 @@ public class DamkaFX extends Application {
                         && selectedPosition.getCol() == col) {
                     Circle ring = new Circle(TILE_SIZE * 0.38);
                     ring.setFill(Color.TRANSPARENT);
-                    ring.setStroke(Color.DODGERBLUE);
+                    ring.setStroke(Color.web("#d5ae62"));
                     ring.setStrokeWidth(5);
                     ring.setMouseTransparent(true);
                     cell.getChildren().add(ring);
@@ -210,9 +246,9 @@ public class DamkaFX extends Application {
                     Circle circle = new Circle(radius);
 
                     if (piece.getSymbol() == 'x' || piece.getSymbol() == 'X') {
-                        circle.setFill(Color.BLACK);
+                        circle.setFill(Color.web("#26353b"));
                     } else {
-                        circle.setFill(Color.RED);
+                        circle.setFill(Color.web("#b94e46"));
                     }
 
                     if (piece.isKing()) {
@@ -340,7 +376,7 @@ public class DamkaFX extends Application {
         game = new Game();
         drawBoard();
         turnLabel.setText("Connecting...");
-        roomLabel.setText("Connecting to " + host + ":" + port);
+        roomLabel.setText("Finding your match...");
         NetworkClient client = new NetworkClient();
         network = client;
         client.connect(host, port, request,
@@ -428,19 +464,33 @@ public class DamkaFX extends Application {
         return 1;
     }
 
-    private void styleButton(Button button, String gradient) {
-        button.setStyle("-fx-background-color: " + gradient + ";"
-                + " -fx-text-fill: white;"
-                + " -fx-font-weight: bold;"
-                + " -fx-background-radius: 25;"
-                + " -fx-padding: 10 20;"
-                + " -fx-cursor: hand;");
-        DropShadow shadow = new DropShadow();
-        button.setOnMouseEntered(e -> {
-            button.setEffect(shadow);
-        });
-        button.setOnMouseExited(e -> {
-            button.setEffect(null);
+    private void showConnectionSettings(Stage owner) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.initOwner(owner);
+        dialog.setTitle("Connection settings");
+        dialog.setHeaderText("Choose the computer hosting your game");
+        TextField host = new TextField(serverHost.getText());
+        TextField port = new TextField(serverPort.getText());
+        Label help = new Label("Use localhost for this computer, or the server computer's LAN address.");
+        help.setWrapText(true);
+        VBox content = new VBox(10, help, new Label("Server address"), host, new Label("Port"), port);
+        content.setPrefWidth(360);
+        dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
+        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(save, ButtonType.CANCEL);
+        dialog.showAndWait().filter(result -> result == save).ifPresent(result -> {
+            try {
+                int number = Integer.parseInt(port.getText().trim());
+                if (number < 1 || number > 65535 || host.getText().trim().isEmpty()) {
+                    throw new NumberFormatException();
+                }
+                serverHost.setText(host.getText().trim());
+                serverPort.setText(String.valueOf(number));
+                showMessage("Connection settings saved for your next match");
+            } catch (NumberFormatException exception) {
+                showMessage("Enter a server address and a port between 1 and 65535");
+            }
         });
     }
 

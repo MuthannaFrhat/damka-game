@@ -27,12 +27,12 @@ Terminal 2 runs the game:
 ```
 
 Run a second game on another computer, or another terminal on this computer.
-In the game choose **Online multiplayer**. Set the server address and port.
+In the game choose **Play with a friend**. The default connection works on this computer. For a different host or port, open **Connection settings**.
 Player A chooses **Create room** and shares the displayed code. Player B enters
 it and chooses **Join room**. Creator is Black/X and moves first; joiner is Red/O.
 Click your piece, then its destination. Both boards update after server approval.
 Mandatory captures and same-piece continuation are enforced on the server.
-**Resign / Leave** ends the game; closing the window or switching to BOT mode
+**Leave match** ends the game; closing the window or switching to BOT mode
 also disconnects and ends that room. A finished room cannot be rejoined.
 
 For two computers on the same LAN, enter the server computer's LAN IPv4 address,
@@ -63,7 +63,7 @@ a daemon confined to the test JVM; it ends with that JVM.
 
 Manual checks: try an illegal move, wait over 15 seconds without moving, resign,
 close one client, and stop the server. The other UI must show the corresponding
-result or connection failure. Switch to **Player vs Bot** with the server stopped.
+result or connection failure. Switch to **Play against BOT** with the server stopped.
 Physical two-computer LAN connectivity depends on local routing and firewall
 settings and must be checked on your own computers.
 
