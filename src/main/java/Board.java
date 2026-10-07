@@ -46,11 +46,6 @@ public class Board {
         }
     }
 
-    // Used by the JavaFX client to display an authoritative server snapshot.
-    public void setPiece(int row, int col, Piece piece) {
-        board[row][col] = piece;
-    }
-
     public Piece getPiece(int row, int col) {
         if (!isInsideBoard(row, col)) {
             return null;

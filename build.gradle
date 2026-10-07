@@ -25,7 +25,8 @@ tasks.withType(JavaCompile) {
 }
 
 application {
-    mainClass = 'Main'
+    mainModule = 'com.example.damka1'
+    mainClass = 'com.example.damka1.HelloApplication'
 }
 
 javafx {
@@ -41,27 +42,6 @@ dependencies {
 
 test {
     useJUnitPlatform()
-}
-
-// Console networking checks run independently of the JavaFX application.
-tasks.register('tcpServer', JavaExec) {
-    group = 'application'
-    description = 'Run the multiplayer TCP server (optional -PserverPort and -PserverBind).'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'DamkaServer'
-    args project.findProperty('serverPort') ?: '5000',
-            project.findProperty('serverBind') ?: '0.0.0.0'
-}
-
-tasks.register('connectionCheck', JavaExec) {
-    group = 'application'
-    description = 'Run a console multiplayer client (optional -PserverHost, -PserverPort, -ProomCode).'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'ServerConnectionCheck'
-    args project.findProperty('serverHost') ?: '127.0.0.1',
-            project.findProperty('serverPort') ?: '5000'
-    if (project.hasProperty('roomCode')) { args project.property('roomCode') }
-    standardInput = System.in
 }
 
 jlink {

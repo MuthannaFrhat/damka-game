@@ -10,13 +10,10 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.ButtonBar;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
-import javafx.scene.control.TextField;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -43,30 +40,15 @@ public class DamkaFX extends Application {
     private int botDepth = 1;
     private boolean mustContinueCapture = false;
 
-    private NetworkClient network;
-    private boolean onlineMode;
-    private boolean onlineReady;
-    private boolean movePending;
-    private char mySymbol;
-    private char onlineTurn;
-    private Label roomLabel;
-    private TextField serverHost;
-    private TextField serverPort;
-    private TextField roomCode;
-    private boolean onlineAnimating;
-    private final java.util.ArrayDeque<String> pendingOnlineMessages = new java.util.ArrayDeque<>();
-    private TranslateTransition activeAnimation;
-
     private final int TILE_SIZE = 70;
 
     @Override
     public void start(Stage stage) {
-        game = new Game(false, true);
-        botMode = true;
+        game = new Game();
 
         turnLabel = new Label("Turn: " + game.getCurrentPlayer().getName());
-        pvpButton = new Button("Play with a friend");
-        botButton = new Button("Play against BOT");
+        pvpButton = new Button("Player vs Player");
+        botButton = new Button("Player vs Bot");
         difficultyBox = new ComboBox<>();
         difficultyBox.getItems().addAll("Easy", "Medium", "Hard");
         difficultyBox.setValue("Easy");
@@ -76,57 +58,21 @@ public class DamkaFX extends Application {
         difficultyControls.setVisible(false);
         difficultyControls.setManaged(false);
 
-        VBox modeButtons = new VBox(10, pvpButton, botButton);
-        pvpButton.setMaxWidth(Double.MAX_VALUE);
-        botButton.setMaxWidth(Double.MAX_VALUE);
+        HBox modeButtons = new HBox(10, pvpButton, botButton);
 
-        serverHost = new TextField("localhost");
-        serverHost.setPrefColumnCount(10);
-        serverPort = new TextField("5000");
-        serverPort.setPrefColumnCount(4);
-        roomCode = new TextField();
-        roomCode.setPromptText("Room code");
-        roomCode.setPrefColumnCount(6);
-        roomLabel = new Label("Local BOT mode");
-        Button createRoom = new Button("Create room");
-        Button joinRoom = new Button("Join room");
-        Button resign = new Button("Leave match");
-        Button settings = new Button("Connection settings");
-        settings.getStyleClass().add("quiet-button");
-        settings.setOnAction(e -> showConnectionSettings(stage));
-        Label inviteHint = new Label("Create a room and share its code,\nor enter a friend's code below.");
-        inviteHint.setWrapText(true);
-        inviteHint.getStyleClass().add("muted");
-        createRoom.setMaxWidth(Double.MAX_VALUE);
-        createRoom.getStyleClass().add("primary-button");
-        joinRoom.getStyleClass().add("secondary-button");
-        resign.getStyleClass().add("quiet-button");
-        roomCode.setPrefColumnCount(6);
-        HBox joinControls = new HBox(8, roomCode, joinRoom);
-        javafx.scene.layout.HBox.setHgrow(roomCode, javafx.scene.layout.Priority.ALWAYS);
-        VBox networkControls = new VBox(12, inviteHint, createRoom, joinControls, resign, settings);
-        networkControls.setVisible(false);
-        networkControls.setManaged(false);
         pvpButton.setOnAction(e -> {
-            networkControls.setVisible(true);
-            networkControls.setManaged(true);
-            showMessage("Create a room or enter your friend's code");
-        });
-        createRoom.setOnAction(e -> connectOnline("CREATE_ROOM"));
-        joinRoom.setOnAction(e -> {
-            String code = roomCode.getText().trim().toUpperCase(java.util.Locale.ROOT);
-            if (!code.matches("[A-Z0-9]{6}")) { showMessage("Enter a six-character room code"); return; }
-            connectOnline("JOIN_ROOM " + code);
-        });
-        resign.setOnAction(e -> {
-            if (network != null) { network.send("RESIGN"); }
+            botMode = false;
+            difficultyControls.setVisible(false);
+            difficultyControls.setManaged(false);
+            game = new Game();
+            selectedPosition = null;
+            gameOver = false;
+            mustContinueCapture = false;
+            turnLabel.setText("Turn: " + game.getCurrentPlayer().getName());
+            drawBoard();
         });
 
         botButton.setOnAction(e -> {
-            leaveOnline();
-            networkControls.setVisible(false);
-            networkControls.setManaged(false);
-            roomLabel.setText("Local BOT mode");
             botMode = true;
             botDepth = getDepthFromDifficulty();
             game = new Game(false, true);
@@ -149,16 +95,15 @@ public class DamkaFX extends Application {
             }
         });
 
-        pvpButton.getStyleClass().add("primary-button");
-        botButton.getStyleClass().add("secondary-button");
-        turnLabel.getStyleClass().add("turn-label");
-        roomLabel.getStyleClass().add("room-label");
-        roomLabel.setWrapText(true);
+        styleButton(pvpButton, "linear-gradient(#4A90E2, #357ABD)");
+        styleButton(botButton, "linear-gradient(#50E3C2, #2DB59C)");
+        difficultyBox.setStyle("-fx-font-weight: bold; -fx-pref-width: 120px;");
+        turnLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
 
         boardGrid = new GridPane();
         boardGrid.setPrefSize(TILE_SIZE * 8, TILE_SIZE * 8);
         boardGrid.setMaxSize(TILE_SIZE * 8, TILE_SIZE * 8);
-        boardGrid.getStyleClass().add("board-grid");
+        boardGrid.setStyle("-fx-border-color: #888888; -fx-border-width: 4; -fx-border-radius: 10; -fx-background-radius: 10;");
 
         animationPane = new Pane();
         animationPane.setPickOnBounds(false);
@@ -170,27 +115,10 @@ public class DamkaFX extends Application {
 
         drawBoard();
 
-        Label title = new Label("DAMKA");
-        title.getStyleClass().add("title");
-        Label subtitle = new Label("A good move changes everything.");
-        subtitle.getStyleClass().add("muted");
-        Label playLabel = new Label("CHOOSE YOUR GAME");
-        playLabel.getStyleClass().add("section-label");
-        VBox sidebar = new VBox(18, title, subtitle, playLabel, modeButtons,
-                networkControls, difficultyControls);
-        sidebar.getStyleClass().add("sidebar");
-        sidebar.setPrefWidth(260);
-        sidebar.setMinWidth(260);
-        sidebar.setMaxWidth(260);
-        Label boardHint = new Label("Select a piece, then choose its destination.");
-        boardHint.getStyleClass().add("muted");
-        StackPane boardFrame = new StackPane(boardStack);
-        boardFrame.getStyleClass().add("board-frame");
-        VBox match = new VBox(12, roomLabel, turnLabel, boardFrame, boardHint);
-        match.setAlignment(Pos.TOP_CENTER);
-        HBox root = new HBox(28, sidebar, match);
-        root.getStyleClass().add("game-root");
-        difficultyControls.setAlignment(Pos.CENTER_LEFT);
+        VBox root = new VBox(15, modeButtons, difficultyControls, turnLabel, boardStack);
+        root.setStyle("-fx-padding: 20; -fx-background-color: linear-gradient(to bottom right, #ece9e6, #ffffff);");
+        modeButtons.setStyle("-fx-padding: 10;");
+        difficultyControls.setStyle("-fx-padding: 6;");
 
         // Toast / notification overlay
         toastPane = new StackPane();
@@ -202,13 +130,10 @@ public class DamkaFX extends Application {
         StackPane.setMargin(toastPane, new Insets(10, 0, 0, 0));
 
         Scene scene = new Scene(appRoot);
-        scene.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
 
         stage.setTitle("Damka Game");
         stage.setScene(scene);
-        stage.setResizable(false);
         stage.show();
-        stage.setOnCloseRequest(e -> leaveOnline());
     }
 
     private void drawBoard() {
@@ -221,9 +146,9 @@ public class DamkaFX extends Application {
                 Rectangle square = new Rectangle(TILE_SIZE, TILE_SIZE);
 
                 if ((row + col) % 2 == 0) {
-                    square.setFill(Color.web("#eee4d2"));
+                    square.setFill(Color.BEIGE);
                 } else {
-                    square.setFill(Color.web("#53756a"));
+                    square.setFill(Color.SADDLEBROWN);
                 }
 
                 StackPane cell = new StackPane();
@@ -236,7 +161,7 @@ public class DamkaFX extends Application {
                         && selectedPosition.getCol() == col) {
                     Circle ring = new Circle(TILE_SIZE * 0.38);
                     ring.setFill(Color.TRANSPARENT);
-                    ring.setStroke(Color.web("#d5ae62"));
+                    ring.setStroke(Color.DODGERBLUE);
                     ring.setStrokeWidth(5);
                     ring.setMouseTransparent(true);
                     cell.getChildren().add(ring);
@@ -249,9 +174,9 @@ public class DamkaFX extends Application {
                     Circle circle = new Circle(radius);
 
                     if (piece.getSymbol() == 'x' || piece.getSymbol() == 'X') {
-                        circle.setFill(Color.web("#26353b"));
+                        circle.setFill(Color.BLACK);
                     } else {
-                        circle.setFill(Color.web("#b94e46"));
+                        circle.setFill(Color.RED);
                     }
 
                     if (piece.isKing()) {
@@ -276,8 +201,6 @@ public class DamkaFX extends Application {
     }
 
     private void handleClick(int row, int col) {
-        if (activeAnimation != null) { return; }
-        if (onlineMode) { handleOnlineClick(row, col); return; }
         if (gameOver) {
             return;
         }
@@ -361,134 +284,6 @@ public class DamkaFX extends Application {
         }
     }
 
-    // Only these callbacks cross from the network thread to JavaFX's UI thread.
-    private void connectOnline(String request) {
-        int port;
-        try {
-            port = Integer.parseInt(serverPort.getText().trim());
-            if (port < 1 || port > 65535) { throw new NumberFormatException(); }
-        } catch (NumberFormatException exception) { showMessage("Port must be 1-65535"); return; }
-        String host = serverHost.getText().trim();
-        if (host.isEmpty()) { showMessage("Enter a server address"); return; }
-        leaveOnline();
-        onlineMode = true;
-        botMode = false;
-        gameOver = false;
-        animationPane.getChildren().clear();
-        difficultyControls.setVisible(false);
-        difficultyControls.setManaged(false);
-        game = new Game();
-        drawBoard();
-        turnLabel.setText("Connecting...");
-        roomLabel.setText("Finding your match...");
-        NetworkClient client = new NetworkClient();
-        network = client;
-        client.connect(host, port, request,
-                message -> Platform.runLater(() -> {
-                    if (network == client) { receiveOnline(message); }
-                }),
-                reason -> Platform.runLater(() -> {
-                    if (network == client) { receiveOnline("CONNECTION_LOST " + reason); }
-                }));
-    }
-
-    private void receiveOnline(String message) {
-        // Preserve message order if the next move/result arrives during a transition.
-        if (onlineAnimating) { pendingOnlineMessages.add(message); return; }
-        String[] parts = message.split(" ");
-        if (message.startsWith("ROOM_CREATED ") || message.startsWith("ROOM_JOINED ")) {
-            mySymbol = parts[2].charAt(0);
-            roomCode.setText(parts[1]);
-            roomLabel.setText("Room: " + parts[1] + " — You are " + (mySymbol == 'x' ? "Black (X)" : "Red (O)"));
-        } else if (message.startsWith("STATE ")) {
-            Position from = null;
-            Position to = null;
-            Piece movingPiece = null;
-            // Compare the previous board with the accepted snapshot; do not predict moves.
-            for (int index = 0; index < 64; index++) {
-                Piece old = game.getBoard().getPiece(index / 8, index % 8);
-                char next = parts[5].charAt(index);
-                if (old != null && old.belongsToPlayer(onlineTurn) && next == '.') {
-                    from = new Position(index / 8, index % 8);
-                    movingPiece = new Piece(old.getSymbol());
-                }
-                if (old == null && next != '.' && Character.toLowerCase(next) == onlineTurn) {
-                    to = new Position(index / 8, index % 8);
-                }
-            }
-            onlineReady = parts[1].equals("ACTIVE");
-            onlineTurn = parts[2].charAt(0);
-            int row = Integer.parseInt(parts[3]), col = Integer.parseInt(parts[4]);
-            selectedPosition = onlineTurn == mySymbol && row >= 0 ? new Position(row, col) : null;
-            mustContinueCapture = selectedPosition != null;
-            movePending = false;
-            Board board = game.getBoard();
-            for (int index = 0; index < 64; index++) {
-                char piece = parts[5].charAt(index);
-                board.setPiece(index / 8, index % 8, piece == '.' ? null : new Piece(piece));
-            }
-            turnLabel.setText(!onlineReady ? "Waiting for opponent..." : onlineTurn == mySymbol
-                    ? mustContinueCapture ? "Your turn — continue capturing" : "Your turn" : "Opponent's turn");
-            if (from != null && to != null) {
-                onlineAnimating = true;
-                animateMove(from, to, movingPiece, () -> {
-                    drawBoard();
-                    onlineAnimating = false;
-                    while (!onlineAnimating && !pendingOnlineMessages.isEmpty()) {
-                        receiveOnline(pendingOnlineMessages.remove());
-                    }
-                });
-            } else { drawBoard(); }
-        } else if (message.startsWith("GAME_OVER ")) {
-            gameOver = true;
-            onlineReady = false;
-            movePending = false;
-            String result = parts[1].equals("-") ? "Room closed" : parts[1].charAt(0) == mySymbol ? "You won" : "You lost";
-            String reason = parts[2].equals("RESIGNED") ? "resignation" : parts[2].equals("DISCONNECTED") ? "disconnection" : "no legal moves";
-            turnLabel.setText(result + " — " + reason);
-            showMessage(turnLabel.getText());
-        } else if (message.startsWith("CONNECTION_LOST ")) {
-            if (!gameOver) {
-                gameOver = true;
-                onlineReady = false;
-                turnLabel.setText(message.substring(16));
-                showMessage(turnLabel.getText());
-            }
-        } else if (message.startsWith("ERROR ")) {
-            movePending = false;
-            showMessage(message.substring(6));
-            if (mySymbol == 0) { turnLabel.setText(message.substring(6)); }
-        }
-    }
-
-    private void handleOnlineClick(int row, int col) {
-        if (gameOver || !onlineReady || onlineAnimating || onlineTurn != mySymbol || movePending) { return; }
-        Piece piece = game.getBoard().getPiece(row, col);
-        if (piece != null && piece.belongsToPlayer(mySymbol)) {
-            if (!mustContinueCapture) { selectedPosition = new Position(row, col); drawBoard(); }
-        } else if (selectedPosition != null) {
-            movePending = true;
-            network.send("MOVE " + selectedPosition.getRow() + " " + selectedPosition.getCol() + " " + row + " " + col);
-        }
-    }
-
-    private void leaveOnline() {
-        if (activeAnimation != null) { activeAnimation.stop(); activeAnimation = null; }
-        if (animationPane != null) { animationPane.getChildren().clear(); }
-        onlineAnimating = false;
-        pendingOnlineMessages.clear();
-        if (network != null) { network.close(); network = null; }
-        onlineMode = false;
-        onlineReady = false;
-        movePending = false;
-        mySymbol = 0;
-        selectedPosition = null;
-        mustContinueCapture = false;
-    }
-
-    @Override
-    public void stop() { leaveOnline(); }
-
     private int getDepthFromDifficulty() {
         String difficulty = difficultyBox.getValue();
         if ("Medium".equals(difficulty)) {
@@ -500,58 +295,36 @@ public class DamkaFX extends Application {
         return 1;
     }
 
-    private void showConnectionSettings(Stage owner) {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.initOwner(owner);
-        dialog.setTitle("Connection settings");
-        dialog.setHeaderText("Choose the computer hosting your game");
-        TextField host = new TextField(serverHost.getText());
-        TextField port = new TextField(serverPort.getText());
-        Label help = new Label("Use localhost for this computer, or the server computer's LAN address.");
-        help.setWrapText(true);
-        VBox content = new VBox(10, help, new Label("Server address"), host, new Label("Port"), port);
-        content.setPrefWidth(360);
-        dialog.getDialogPane().setContent(content);
-        dialog.getDialogPane().getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
-        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(save, ButtonType.CANCEL);
-        dialog.showAndWait().filter(result -> result == save).ifPresent(result -> {
-            try {
-                int number = Integer.parseInt(port.getText().trim());
-                if (number < 1 || number > 65535 || host.getText().trim().isEmpty()) {
-                    throw new NumberFormatException();
-                }
-                serverHost.setText(host.getText().trim());
-                serverPort.setText(String.valueOf(number));
-                showMessage("Connection settings saved for your next match");
-            } catch (NumberFormatException exception) {
-                showMessage("Enter a server address and a port between 1 and 65535");
-            }
+    private void styleButton(Button button, String gradient) {
+        button.setStyle("-fx-background-color: " + gradient + ";"
+                + " -fx-text-fill: white;"
+                + " -fx-font-weight: bold;"
+                + " -fx-background-radius: 25;"
+                + " -fx-padding: 10 20;"
+                + " -fx-cursor: hand;");
+        DropShadow shadow = new DropShadow();
+        button.setOnMouseEntered(e -> {
+            button.setEffect(shadow);
+        });
+        button.setOnMouseExited(e -> {
+            button.setEffect(null);
         });
     }
 
     private void animateMove(Position from, Position to, Piece movingPiece, boolean wasCapture) {
-        animateMove(from, to, movingPiece, () -> finalizeMoveOutcome(to, wasCapture));
-    }
-
-    // Both modes use the same piece, duration, easing and overlay.
-    private void animateMove(Position from, Position to, Piece movingPiece, Runnable onFinished) {
         animationPane.getChildren().clear();
-        StackPane sourceCell = (StackPane) boardGrid.getChildren().get(from.getRow() * 8 + from.getCol());
-        sourceCell.getChildren().removeIf(node -> node instanceof Circle);
 
-        Circle animatedCircle = new Circle(TILE_SIZE * 0.35);
+        Circle animatedCircle = new Circle(TILE_SIZE / 2.5);
         if (movingPiece.getSymbol() == 'x' || movingPiece.getSymbol() == 'X') {
-            animatedCircle.setFill(Color.web("#26353b"));
+            animatedCircle.setFill(Color.BLACK);
         } else {
-            animatedCircle.setFill(Color.web("#b94e46"));
+            animatedCircle.setFill(Color.RED);
         }
         if (movingPiece.isKing()) {
             animatedCircle.setStroke(Color.GOLD);
             animatedCircle.setStrokeWidth(4);
         }
 
-        animatedCircle.setEffect(new DropShadow(6, Color.color(0, 0, 0, 0.45)));
         double startX = from.getCol() * TILE_SIZE + TILE_SIZE / 2.0;
         double startY = from.getRow() * TILE_SIZE + TILE_SIZE / 2.0;
         double endX = to.getCol() * TILE_SIZE + TILE_SIZE / 2.0;
@@ -564,13 +337,9 @@ public class DamkaFX extends Application {
         TranslateTransition transition = new TranslateTransition(Duration.millis(300), animatedCircle);
         transition.setByX(endX - startX);
         transition.setByY(endY - startY);
-        Game animatedGame = game;
-        activeAnimation = transition;
         transition.setOnFinished(e -> {
-            if (game != animatedGame || activeAnimation != transition) { return; }
-            activeAnimation = null;
             animationPane.getChildren().clear();
-            onFinished.run();
+            finalizeMoveOutcome(to, wasCapture);
         });
         transition.play();
     }
@@ -603,7 +372,7 @@ public class DamkaFX extends Application {
     }
 
     private void maybePerformBotTurn() {
-        if (botMode && !gameOver && game.getCurrentPlayer().isBot()) {
+        while (botMode && !gameOver && game.getCurrentPlayer().isBot()) {
             performBotMove();
         }
     }
