@@ -22,7 +22,6 @@ public class ServerConnectionCheck {
         }
 
         try (Socket socket = new Socket("localhost", 5000)) {
-            socket.setSoTimeout(5000);
 
             PrintWriter output = new PrintWriter(
                     new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
@@ -49,7 +48,6 @@ public class ServerConnectionCheck {
                 throw new IOException("Server returned a different room code.");
             }
             System.out.println(responsePrefix.trim() + ": " + code);
-            socket.setSoTimeout(0);
             System.out.println("Waiting for the other player. Press Ctrl+C to disconnect.");
 
             while ((response = input.readLine()) != null) {

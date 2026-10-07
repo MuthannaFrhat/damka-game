@@ -5,7 +5,6 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 
 public class DamkaServer {
@@ -23,7 +22,6 @@ public class DamkaServer {
     private static void handleClient(Socket client) {
         Room room = null;
         try (Socket connection = client) {
-            connection.setSoTimeout(5000);
             BufferedReader input = new BufferedReader(
                     new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
             PrintWriter output = new PrintWriter(
@@ -43,13 +41,7 @@ public class DamkaServer {
                 if (output.checkError()) {
                     throw new IOException("Could not send response to client.");
                 }
-                if (room != null) {
-                    // A player may wait for their opponent longer than five seconds.
-                    connection.setSoTimeout(0);
-                }
             }
-        } catch (SocketTimeoutException exception) {
-            System.out.println("Client did not send a request in time. Connection closed.");
         } catch (IOException exception) {
             System.out.println("Connection closed: " + exception.getMessage());
         } finally {
