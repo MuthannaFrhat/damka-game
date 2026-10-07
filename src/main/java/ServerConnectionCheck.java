@@ -14,6 +14,7 @@ public class ServerConnectionCheck {
             return;
         }
 
+        // No argument creates a room; one code argument joins an existing room.
         String request = "CREATE_ROOM";
         String responsePrefix = "ROOM_CREATED ";
         if (args.length == 1) {
@@ -22,6 +23,7 @@ public class ServerConnectionCheck {
         }
 
         try (Socket socket = new Socket("localhost", 5000)) {
+            // Limit waiting for the initial response, before room membership is confirmed.
             socket.setSoTimeout(5000);
 
             PrintWriter output = new PrintWriter(
@@ -30,6 +32,7 @@ public class ServerConnectionCheck {
                     new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
 
             output.println(request);
+            // This is where the client waits for the server's acknowledgement.
             String response = input.readLine();
 
             if (response == null) {
@@ -49,9 +52,11 @@ public class ServerConnectionCheck {
                 throw new IOException("Server returned a different room code.");
             }
             System.out.println(responsePrefix.trim() + ": " + code);
+            // Membership is confirmed: wait for room notifications without a deadline.
             socket.setSoTimeout(0);
             System.out.println("Waiting for the other player. Press Ctrl+C to disconnect.");
 
+            // Keep the socket open after ROOM_READY; Ctrl+C disconnects this client.
             while ((response = input.readLine()) != null) {
                 if (response.equals("ROOM_READY " + code)) {
                     System.out.println("ROOM_READY: " + code + " - both players are connected!");
