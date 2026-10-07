@@ -53,6 +53,9 @@ public class DamkaFX extends Application {
     private TextField serverHost;
     private TextField serverPort;
     private TextField roomCode;
+    private boolean onlineAnimating;
+    private final java.util.ArrayDeque<String> pendingOnlineMessages = new java.util.ArrayDeque<>();
+    private TranslateTransition activeAnimation;
 
     private final int TILE_SIZE = 70;
 
@@ -273,6 +276,7 @@ public class DamkaFX extends Application {
     }
 
     private void handleClick(int row, int col) {
+        if (activeAnimation != null) { return; }
         if (onlineMode) { handleOnlineClick(row, col); return; }
         if (gameOver) {
             return;
@@ -384,22 +388,34 @@ public class DamkaFX extends Application {
                     if (network == client) { receiveOnline(message); }
                 }),
                 reason -> Platform.runLater(() -> {
-                    if (network == client && !gameOver) {
-                        gameOver = true;
-                        onlineReady = false;
-                        turnLabel.setText(reason);
-                        showMessage(reason);
-                    }
+                    if (network == client) { receiveOnline("CONNECTION_LOST " + reason); }
                 }));
     }
 
     private void receiveOnline(String message) {
+        // Preserve message order if the next move/result arrives during a transition.
+        if (onlineAnimating) { pendingOnlineMessages.add(message); return; }
         String[] parts = message.split(" ");
         if (message.startsWith("ROOM_CREATED ") || message.startsWith("ROOM_JOINED ")) {
             mySymbol = parts[2].charAt(0);
             roomCode.setText(parts[1]);
             roomLabel.setText("Room: " + parts[1] + " — You are " + (mySymbol == 'x' ? "Black (X)" : "Red (O)"));
         } else if (message.startsWith("STATE ")) {
+            Position from = null;
+            Position to = null;
+            Piece movingPiece = null;
+            // Compare the previous board with the accepted snapshot; do not predict moves.
+            for (int index = 0; index < 64; index++) {
+                Piece old = game.getBoard().getPiece(index / 8, index % 8);
+                char next = parts[5].charAt(index);
+                if (old != null && old.belongsToPlayer(onlineTurn) && next == '.') {
+                    from = new Position(index / 8, index % 8);
+                    movingPiece = new Piece(old.getSymbol());
+                }
+                if (old == null && next != '.' && Character.toLowerCase(next) == onlineTurn) {
+                    to = new Position(index / 8, index % 8);
+                }
+            }
             onlineReady = parts[1].equals("ACTIVE");
             onlineTurn = parts[2].charAt(0);
             int row = Integer.parseInt(parts[3]), col = Integer.parseInt(parts[4]);
@@ -413,7 +429,16 @@ public class DamkaFX extends Application {
             }
             turnLabel.setText(!onlineReady ? "Waiting for opponent..." : onlineTurn == mySymbol
                     ? mustContinueCapture ? "Your turn — continue capturing" : "Your turn" : "Opponent's turn");
-            drawBoard();
+            if (from != null && to != null) {
+                onlineAnimating = true;
+                animateMove(from, to, movingPiece, () -> {
+                    drawBoard();
+                    onlineAnimating = false;
+                    while (!onlineAnimating && !pendingOnlineMessages.isEmpty()) {
+                        receiveOnline(pendingOnlineMessages.remove());
+                    }
+                });
+            } else { drawBoard(); }
         } else if (message.startsWith("GAME_OVER ")) {
             gameOver = true;
             onlineReady = false;
@@ -422,6 +447,13 @@ public class DamkaFX extends Application {
             String reason = parts[2].equals("RESIGNED") ? "resignation" : parts[2].equals("DISCONNECTED") ? "disconnection" : "no legal moves";
             turnLabel.setText(result + " — " + reason);
             showMessage(turnLabel.getText());
+        } else if (message.startsWith("CONNECTION_LOST ")) {
+            if (!gameOver) {
+                gameOver = true;
+                onlineReady = false;
+                turnLabel.setText(message.substring(16));
+                showMessage(turnLabel.getText());
+            }
         } else if (message.startsWith("ERROR ")) {
             movePending = false;
             showMessage(message.substring(6));
@@ -430,7 +462,7 @@ public class DamkaFX extends Application {
     }
 
     private void handleOnlineClick(int row, int col) {
-        if (gameOver || !onlineReady || onlineTurn != mySymbol || movePending) { return; }
+        if (gameOver || !onlineReady || onlineAnimating || onlineTurn != mySymbol || movePending) { return; }
         Piece piece = game.getBoard().getPiece(row, col);
         if (piece != null && piece.belongsToPlayer(mySymbol)) {
             if (!mustContinueCapture) { selectedPosition = new Position(row, col); drawBoard(); }
@@ -441,6 +473,10 @@ public class DamkaFX extends Application {
     }
 
     private void leaveOnline() {
+        if (activeAnimation != null) { activeAnimation.stop(); activeAnimation = null; }
+        if (animationPane != null) { animationPane.getChildren().clear(); }
+        onlineAnimating = false;
+        pendingOnlineMessages.clear();
         if (network != null) { network.close(); network = null; }
         onlineMode = false;
         onlineReady = false;
@@ -495,19 +531,27 @@ public class DamkaFX extends Application {
     }
 
     private void animateMove(Position from, Position to, Piece movingPiece, boolean wasCapture) {
-        animationPane.getChildren().clear();
+        animateMove(from, to, movingPiece, () -> finalizeMoveOutcome(to, wasCapture));
+    }
 
-        Circle animatedCircle = new Circle(TILE_SIZE / 2.5);
+    // Both modes use the same piece, duration, easing and overlay.
+    private void animateMove(Position from, Position to, Piece movingPiece, Runnable onFinished) {
+        animationPane.getChildren().clear();
+        StackPane sourceCell = (StackPane) boardGrid.getChildren().get(from.getRow() * 8 + from.getCol());
+        sourceCell.getChildren().removeIf(node -> node instanceof Circle);
+
+        Circle animatedCircle = new Circle(TILE_SIZE * 0.35);
         if (movingPiece.getSymbol() == 'x' || movingPiece.getSymbol() == 'X') {
-            animatedCircle.setFill(Color.BLACK);
+            animatedCircle.setFill(Color.web("#26353b"));
         } else {
-            animatedCircle.setFill(Color.RED);
+            animatedCircle.setFill(Color.web("#b94e46"));
         }
         if (movingPiece.isKing()) {
             animatedCircle.setStroke(Color.GOLD);
             animatedCircle.setStrokeWidth(4);
         }
 
+        animatedCircle.setEffect(new DropShadow(6, Color.color(0, 0, 0, 0.45)));
         double startX = from.getCol() * TILE_SIZE + TILE_SIZE / 2.0;
         double startY = from.getRow() * TILE_SIZE + TILE_SIZE / 2.0;
         double endX = to.getCol() * TILE_SIZE + TILE_SIZE / 2.0;
@@ -521,10 +565,12 @@ public class DamkaFX extends Application {
         transition.setByX(endX - startX);
         transition.setByY(endY - startY);
         Game animatedGame = game;
+        activeAnimation = transition;
         transition.setOnFinished(e -> {
-            if (onlineMode || game != animatedGame) { return; }
+            if (game != animatedGame || activeAnimation != transition) { return; }
+            activeAnimation = null;
             animationPane.getChildren().clear();
-            finalizeMoveOutcome(to, wasCapture);
+            onFinished.run();
         });
         transition.play();
     }
