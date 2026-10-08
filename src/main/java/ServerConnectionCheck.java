@@ -51,7 +51,9 @@ public class ServerConnectionCheck {
             System.out.println("Waiting for the other player. Press Ctrl+C to disconnect.");
 
             while ((response = input.readLine()) != null) {
-                if (response.equals("ROOM_READY " + code)) {
+                if (response.startsWith("PLAYER ") || response.startsWith("STATE ")) {
+                    System.out.println(response);
+                } else if (response.equals("ROOM_READY " + code)) {
                     System.out.println("ROOM_READY: " + code + " - both players are connected!");
                 } else if (response.equals("ROOM_CLOSED " + code)) {
                     System.out.println("ROOM_CLOSED: the room has been closed.");

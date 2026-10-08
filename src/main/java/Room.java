@@ -10,6 +10,7 @@ public class Room {
     private static final Random random = new Random();
     private static final String CODE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
+    private final Game game = new Game();
     private final String code;
     private final Socket firstPlayer;
     private final PrintWriter firstOutput;
@@ -39,6 +40,7 @@ public class Room {
         Room room = new Room(code, player, output);
         rooms.put(code, room);
         output.println("ROOM_CREATED " + code);
+        output.println("PLAYER x");
         return room;
     }
 
@@ -63,11 +65,27 @@ public class Room {
         // Acknowledge joining before notifying either player that the room is ready.
         output.println("ROOM_JOINED " + code);
         room.firstOutput.println("ROOM_READY " + code);
+        output.println("PLAYER o");
         output.println("ROOM_READY " + code);
+        room.sendInitialState();
         if (room.firstOutput.checkError() || output.checkError()) {
             room.disconnect();
         }
         return room;
+    }
+
+    // Serialize the authoritative board as 64 characters, from row 0 to row 7.
+    private void sendInitialState() {
+        StringBuilder board = new StringBuilder();
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                Piece piece = game.getBoard().getPiece(row, col);
+                board.append(piece == null ? '.' : piece.getSymbol());
+            }
+        }
+        String message = "STATE " + game.getCurrentPlayer().getSymbol() + " " + board;
+        firstOutput.println(message);
+        secondOutput.println(message);
     }
 
     public void disconnect() {

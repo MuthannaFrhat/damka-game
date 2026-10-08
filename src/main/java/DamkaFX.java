@@ -14,6 +14,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -40,14 +41,24 @@ public class DamkaFX extends Application {
     private int botDepth = 1;
     private boolean mustContinueCapture = false;
 
+    private RoomConnection roomConnection;
+    private boolean onlineMode;
+    private String onlineBoard;
+    private char onlineColor;
+    private Label roomStatus;
+    private TextField roomCode;
+    private TextField serverAddress;
+    private TextField serverPort;
+
     private final int TILE_SIZE = 70;
 
     @Override
     public void start(Stage stage) {
-        game = new Game();
+        game = new Game(false, true);
+        botMode = true;
 
         turnLabel = new Label("Turn: " + game.getCurrentPlayer().getName());
-        pvpButton = new Button("Player vs Player");
+        pvpButton = new Button("Online rooms");
         botButton = new Button("Player vs Bot");
         difficultyBox = new ComboBox<>();
         difficultyBox.getItems().addAll("Easy", "Medium", "Hard");
@@ -60,19 +71,46 @@ public class DamkaFX extends Application {
 
         HBox modeButtons = new HBox(10, pvpButton, botButton);
 
+        roomStatus = new Label("Local BOT game");
+        serverAddress = new TextField("localhost");
+        serverAddress.setPrefColumnCount(9);
+        serverPort = new TextField("5000");
+        serverPort.setPrefColumnCount(4);
+        roomCode = new TextField();
+        roomCode.setPromptText("Room code");
+        roomCode.setPrefColumnCount(6);
+        Button create = new Button("Create room");
+        Button join = new Button("Join room");
+        Button leave = new Button("Leave room");
+        VBox roomControls = new VBox(8,
+                new HBox(8, new Label("Server:"), serverAddress, serverPort),
+                new HBox(8, create, roomCode, join, leave));
+        roomControls.setVisible(false);
+        roomControls.setManaged(false);
         pvpButton.setOnAction(e -> {
+            roomControls.setVisible(true);
+            roomControls.setManaged(true);
+        });
+        create.setOnAction(e -> connectToRoom("CREATE_ROOM"));
+        join.setOnAction(e -> {
+            String code = roomCode.getText().trim().toUpperCase(java.util.Locale.ROOT);
+            if (!code.matches("[A-Z0-9]{6}")) { showMessage("Enter a six-character room code"); return; }
+            connectToRoom("JOIN_ROOM " + code);
+        });
+        leave.setOnAction(e -> {
+            closeRoomConnection();
+            onlineMode = true;
             botMode = false;
-            difficultyControls.setVisible(false);
-            difficultyControls.setManaged(false);
-            game = new Game();
-            selectedPosition = null;
-            gameOver = false;
-            mustContinueCapture = false;
-            turnLabel.setText("Turn: " + game.getCurrentPlayer().getName());
             drawBoard();
+            turnLabel.setText("Room left — create or join another room");
+            roomStatus.setText("Not connected");
         });
 
         botButton.setOnAction(e -> {
+            closeRoomConnection();
+            roomControls.setVisible(false);
+            roomControls.setManaged(false);
+            roomStatus.setText("Local BOT game");
             botMode = true;
             botDepth = getDepthFromDifficulty();
             game = new Game(false, true);
@@ -115,7 +153,7 @@ public class DamkaFX extends Application {
 
         drawBoard();
 
-        VBox root = new VBox(15, modeButtons, difficultyControls, turnLabel, boardStack);
+        VBox root = new VBox(15, modeButtons, roomControls, roomStatus, difficultyControls, turnLabel, boardStack);
         root.setStyle("-fx-padding: 20; -fx-background-color: linear-gradient(to bottom right, #ece9e6, #ffffff);");
         modeButtons.setStyle("-fx-padding: 10;");
         difficultyControls.setStyle("-fx-padding: 6;");
@@ -167,7 +205,11 @@ public class DamkaFX extends Application {
                     cell.getChildren().add(ring);
                 }
 
-                Piece piece = board.getPiece(row, col);
+                Piece piece;
+                if (onlineMode) {
+                    char symbol = onlineBoard == null ? '.' : onlineBoard.charAt(row * 8 + col);
+                    piece = symbol == '.' ? null : new Piece(symbol);
+                } else { piece = board.getPiece(row, col); }
 
                 if (piece != null) {
                     double radius = TILE_SIZE * 0.35;
@@ -201,6 +243,7 @@ public class DamkaFX extends Application {
     }
 
     private void handleClick(int row, int col) {
+        if (onlineMode) { return; } // Network moves are deliberately not implemented yet.
         if (gameOver) {
             return;
         }
@@ -284,6 +327,72 @@ public class DamkaFX extends Application {
         }
     }
 
+    private void connectToRoom(String request) {
+        int port;
+        try {
+            port = Integer.parseInt(serverPort.getText().trim());
+            if (port < 1 || port > 65535) { throw new NumberFormatException(); }
+        } catch (NumberFormatException exception) { showMessage("Port must be 1-65535"); return; }
+        String host = serverAddress.getText().trim();
+        if (host.isEmpty()) { showMessage("Enter a server address"); return; }
+        closeRoomConnection();
+        onlineMode = true;
+        botMode = false;
+        gameOver = false;
+        difficultyControls.setVisible(false);
+        difficultyControls.setManaged(false);
+        turnLabel.setText("Connecting...");
+        roomStatus.setText("Connecting to the room server");
+        drawBoard();
+        RoomConnection connection = new RoomConnection();
+        roomConnection = connection;
+        connection.connect(host, port, request, message -> Platform.runLater(() -> {
+            // Ignore callbacks from a connection the user has already left.
+            if (roomConnection == connection) { receiveRoomMessage(message); }
+        }));
+    }
+
+    private void receiveRoomMessage(String message) {
+        if (message.startsWith("ROOM_CREATED ") || message.startsWith("ROOM_JOINED ")) {
+            roomCode.setText(message.split(" ")[1]);
+            roomStatus.setText("Room " + roomCode.getText() + " — waiting for both players");
+        } else if (message.startsWith("PLAYER ")) {
+            onlineColor = message.charAt(7);
+        } else if (message.startsWith("STATE ")) {
+            String[] parts = message.split(" ");
+            if (parts.length != 3 || !parts[1].matches("[xo]") || !parts[2].matches("[.xoXO]{64}")) {
+                showMessage("Invalid board received from server"); return;
+            }
+            onlineBoard = parts[2];
+            roomStatus.setText("Room " + roomCode.getText() + " — You are "
+                    + (onlineColor == 'x' ? "Black (X)" : "Red (O)"));
+            turnLabel.setText("Turn: " + (parts[1].equals("x") ? "Black" : "Red")
+                    + " — board preview only; network moves come next");
+            drawBoard();
+        } else if (message.startsWith("ERROR ") || message.startsWith("DISCONNECTED ")
+                || message.startsWith("ROOM_CLOSED ")) {
+            turnLabel.setText(message.startsWith("ROOM_CLOSED ") ? "Room closed — opponent left" : message.substring(message.indexOf(' ') + 1));
+            roomStatus.setText("Not connected");
+            RoomConnection connection = roomConnection;
+            roomConnection = null;
+            if (connection != null) { connection.close(); }
+            showMessage(turnLabel.getText());
+        }
+    }
+
+    private void closeRoomConnection() {
+        if (roomConnection != null) { roomConnection.close(); roomConnection = null; }
+        onlineMode = false;
+        onlineBoard = null;
+        onlineColor = 0;
+        selectedPosition = null;
+        mustContinueCapture = false;
+        if (animationPane != null) { animationPane.getChildren().clear(); }
+    }
+
+    @Override
+    public void stop() { closeRoomConnection(); }
+
     private int getDepthFromDifficulty() {
         String difficulty = difficultyBox.getValue();
         if ("Medium".equals(difficulty)) {
@@ -337,7 +446,9 @@ public class DamkaFX extends Application {
         TranslateTransition transition = new TranslateTransition(Duration.millis(300), animatedCircle);
         transition.setByX(endX - startX);
         transition.setByY(endY - startY);
+        Game animatedGame = game;
         transition.setOnFinished(e -> {
+            if (onlineMode || game != animatedGame) { return; }
             animationPane.getChildren().clear();
             finalizeMoveOutcome(to, wasCapture);
         });
