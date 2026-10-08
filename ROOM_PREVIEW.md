@@ -26,7 +26,8 @@ Terminals 2 and 3:
 .\gradlew.bat run
 ```
 
-Choose **Online rooms** in both windows. In the first choose **Create room**;
+Choose **Online rooms** in both windows. This switches to the TCP room view; local
+board clicks are no longer used for PVP. In the first choose **Create room**;
 copy its six-character code into the second window and choose **Join room**.
 Use localhost and port 5000 on one computer. For another computer on the same
 LAN, use the server computer's LAN address and allow its inbound TCP port 5000.
@@ -54,8 +55,8 @@ Gradle percentage stays below 100% while an application is running; that is norm
    thread. It then reads messages until the connection ends. Consumer<String>
    is the callback the caller supplies for each received message.
 6. DamkaFX wraps that callback in Platform.runLater: only the JavaFX thread
-   updates controls. `onlineBoard` is a display snapshot, not a local authority.
-   `drawBoard()` reads it in online mode; local BOT mode still reads Game's Board.
+   updates controls. `serverBoardSnapshot` is a display snapshot, not a local authority.
+   `drawBoard()` reads it in online mode; local BOT mode still reads botGame's Board.
 7. `close()` closes the socket to release a waiting read. The volatile fields
    make close/socket changes visible across the UI and network threads. Old
    callbacks are ignored after the user switches connections or modes.
@@ -76,3 +77,13 @@ The tests bound their OWN reads to avoid hanging a failed test; the application
 has no read timeout. A separate cloud JavaFX smoke check exercised two windows,
 rendered state, disabled online clicks, disconnect notification and local BOT
 play. Physical two-computer LAN connectivity has not been tested here.
+
+## Naming and modes
+
+`botGame`, `selectedBotPiece`, `isBotGameOver` and `mustContinueBotCapture`
+belong only to local BOT play. `serverBoardSnapshot`, `myOnlineColor` and
+`activeRoomConnection` belong to online PVP. `isOnlineMode` selects the display
+and input path; there is no separate, potentially conflicting botMode flag.
+Choosing Online rooms suspends local input before a connection is established.
+RoomConnection names its socket `socketToServer` (a Socket, not a ServerSocket),
+with `serverReader`, `serverWriter` and `onServerMessage` for message handling.

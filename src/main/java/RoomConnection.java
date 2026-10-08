@@ -9,41 +9,41 @@ import java.util.function.Consumer;
 
 /** One background thread connects, sends the room request, then reads notifications. */
 public class RoomConnection implements AutoCloseable {
-    private volatile Socket socket;
-    private volatile boolean closed;
+    private volatile Socket socketToServer;
+    private volatile boolean isClosed;
 
-    public void connect(String host, int port, String request, Consumer<String> onMessage) {
-        Thread worker = new Thread(() -> {
+    public void connect(String serverAddress, int serverPort, String roomRequest, Consumer<String> onServerMessage) {
+        Thread readerThread = new Thread(() -> {
             try {
-                Socket connection = new Socket();
-                socket = connection;
-                if (closed) { connection.close(); return; }
-                connection.connect(new java.net.InetSocketAddress(host, port));
-                BufferedReader input = new BufferedReader(new InputStreamReader(
-                        connection.getInputStream(), StandardCharsets.UTF_8));
-                PrintWriter output = new PrintWriter(new OutputStreamWriter(
-                        connection.getOutputStream(), StandardCharsets.UTF_8), true);
-                output.println(request);
-                if (output.checkError()) { throw new IOException("Could not send room request"); }
-                String message;
-                while (!closed && (message = input.readLine()) != null) {
-                    onMessage.accept(message);
-                    if (message.startsWith("ERROR ") || message.startsWith("ROOM_CLOSED ")) { return; }
+                Socket connectedSocket = new Socket();
+                socketToServer = connectedSocket;
+                if (isClosed) { connectedSocket.close(); return; }
+                connectedSocket.connect(new java.net.InetSocketAddress(serverAddress, serverPort));
+                BufferedReader serverReader = new BufferedReader(new InputStreamReader(
+                        connectedSocket.getInputStream(), StandardCharsets.UTF_8));
+                PrintWriter serverWriter = new PrintWriter(new OutputStreamWriter(
+                        connectedSocket.getOutputStream(), StandardCharsets.UTF_8), true);
+                serverWriter.println(roomRequest);
+                if (serverWriter.checkError()) { throw new IOException("Could not send room request"); }
+                String serverMessage;
+                while (!isClosed && (serverMessage = serverReader.readLine()) != null) {
+                    onServerMessage.accept(serverMessage);
+                    if (serverMessage.startsWith("ERROR ") || serverMessage.startsWith("ROOM_CLOSED ")) { return; }
                 }
-                if (!closed) { onMessage.accept("DISCONNECTED Server closed the connection"); }
+                if (!isClosed) { onServerMessage.accept("DISCONNECTED Server closed the connection"); }
             } catch (IOException exception) {
-                if (!closed) { onMessage.accept("DISCONNECTED " + exception.getMessage()); }
+                if (!isClosed) { onServerMessage.accept("DISCONNECTED " + exception.getMessage()); }
             } finally { close(); }
         }, "room-reader");
-        worker.setDaemon(true);
-        worker.start();
+        readerThread.setDaemon(true);
+        readerThread.start();
     }
 
     public void close() {
-        closed = true;
-        Socket connection = socket;
-        if (connection != null) {
-            try { connection.close(); } catch (IOException ignored) { }
+        isClosed = true;
+        Socket connectedSocket = socketToServer;
+        if (connectedSocket != null) {
+            try { connectedSocket.close(); } catch (IOException ignored) { }
         }
     }
 }
