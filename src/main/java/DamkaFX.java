@@ -4,11 +4,14 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -37,6 +40,8 @@ public class DamkaFX extends Application {
     private boolean mustContinueCapture = false;
     // Window controls. Visual styling lives in damka.css.
     private Label connectionStatusLabel;
+    private HBox errorBanner;
+    private Label errorLabel;
     private Label matchStatusLabel;
     private TextField roomCodeField;
     private Button joinRoomButton;
@@ -44,6 +49,8 @@ public class DamkaFX extends Application {
     private Button resignButton;
     private Button leaveRoomButton;
     private Label roomCodeLabel;
+    private Button copyRoomButton;
+    private String currentRoomCode;
     private Label playerColorLabel;
     private String myPlayerColor;
     // Online state: one connection, a display snapshot, and pending request flags.
@@ -161,9 +168,14 @@ public class DamkaFX extends Application {
 
         ScrollPane scrollPane = new ScrollPane(content);
         scrollPane.setFitToWidth(true);
-        scrollPane.getStyleClass().addAll("content-scroll", "app-root");
+        scrollPane.getStyleClass().add("content-scroll");
 
-        Scene scene = new Scene(scrollPane);
+        // The error sits over the content, so showing it never takes space from the board.
+        StackPane window = new StackPane(scrollPane, buildErrorBanner());
+        window.getStyleClass().add("app-root");
+        StackPane.setAlignment(errorBanner, Pos.BOTTOM_CENTER);
+        StackPane.setMargin(errorBanner, new Insets(20));
+        Scene scene = new Scene(window);
         scene.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
         Runnable fitBoardToWindow = () -> {
             double availableHeight = Math.max(280, scene.getHeight() - header.getHeight() - connectionStatusLabel.getHeight() - 150);
@@ -213,7 +225,14 @@ public class DamkaFX extends Application {
         Label joinLabel = new Label("HAVE A ROOM CODE?");
         joinLabel.getStyleClass().add("eyebrow-label");
         HBox joinControls = new HBox(8, roomCodeField, joinRoomButton);
-        VBox roomIdentity = new VBox(6, playerColorLabel, roomCodeLabel);
+        copyRoomButton = new Button("Copy");
+        copyRoomButton.getStyleClass().addAll("quiet-button", "copy-code-button");
+        copyRoomButton.setOnAction(e -> copyRoomCode());
+        HBox roomCodeRow = new HBox(8, roomCodeLabel, copyRoomButton);
+        roomCodeRow.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(roomCodeLabel, Priority.ALWAYS);
+        roomCodeLabel.setMaxWidth(Double.MAX_VALUE);
+        VBox roomIdentity = new VBox(6, playerColorLabel, roomCodeRow);
         roomIdentity.getStyleClass().add("room-identity");
         HBox matchActions = new HBox(8, resignButton, leaveRoomButton);
         matchActions.setAlignment(Pos.CENTER_LEFT);
@@ -221,6 +240,24 @@ public class DamkaFX extends Application {
                 joinControls, roomIdentity, matchActions);
         panel.getStyleClass().add("card");
         return panel;
+    }
+
+    private HBox buildErrorBanner() {
+        errorLabel = new Label();
+        errorLabel.setWrapText(true);
+        errorLabel.setMinWidth(0);
+        errorLabel.getStyleClass().add("error-message");
+        HBox.setHgrow(errorLabel, Priority.ALWAYS);
+        Button dismissButton = new Button("×");
+        dismissButton.getStyleClass().add("error-dismiss");
+        dismissButton.setAccessibleText("Dismiss error");
+        dismissButton.setOnAction(e -> errorBanner.setVisible(false));
+        errorBanner = new HBox(12, errorLabel, dismissButton);
+        errorBanner.setAlignment(Pos.CENTER_LEFT);
+        errorBanner.setMaxSize(440, HBox.USE_PREF_SIZE);
+        errorBanner.getStyleClass().add("error-banner");
+        errorBanner.setVisible(false);
+        return errorBanner;
     }
 
     private VBox buildBotPanel() {
@@ -386,23 +423,33 @@ public class DamkaFX extends Application {
         return 1;
     }
 
-    // Normal feedback clears the error appearance after a successful action.
+    // Successful actions clear the floating error; the status line keeps its own space.
     private void showStatus(String message) {
-        connectionStatusLabel.getStyleClass().remove("status-error");
+        errorBanner.setVisible(false);
         connectionStatusLabel.setText(message);
     }
 
     private void showError(String message) {
         if ("Invalid move.".equals(message)) {
-            message = "Move not allowed.\nChoose an empty diagonal square. Regular pieces move forward. "
-                    + "If a capture is available, you must take it.";
+            message = "Invalid move. Move diagonally to an empty square, or capture if required.";
         } else if ("A capture is required.".equals(message)) {
-            message = "Capture required.\nJump over an opponent’s piece into an empty diagonal square.";
-        } else {
-            message = "Please check:\n" + message;
+            message = "Capture required. Jump over an opponent’s piece.";
         }
-        showStatus(message);
-        connectionStatusLabel.getStyleClass().add("status-error");
+        errorLabel.setText(message);
+        errorBanner.setVisible(true);
+    }
+
+    private void copyRoomCode() {
+        if (currentRoomCode == null) {
+            return;
+        }
+        ClipboardContent content = new ClipboardContent();
+        content.putString(currentRoomCode);
+        if (Clipboard.getSystemClipboard().setContent(content)) {
+            copyRoomButton.setText("Copied");
+        } else {
+            showError("Could not copy the room code. Try again.");
+        }
     }
 
     private void updateControls() {
@@ -410,6 +457,7 @@ public class DamkaFX extends Application {
         createRoomButton.setDisable(!canChooseRoom);
         joinRoomButton.setDisable(!canChooseRoom);
         roomCodeField.setDisable(!canChooseRoom);
+        copyRoomButton.setDisable(!isInRoom || currentRoomCode == null);
         botButton.setDisable(isConnecting || roomRequestPending || isInRoom);
         difficultyBox.setDisable(isInRoom || isOnlineMode);
         resignButton.setDisable(!isInRoom || serverBoardSnapshot == null || gameOver
@@ -446,6 +494,7 @@ public class DamkaFX extends Application {
 
         isOnlineMode = true;
         roomRequestPending = true;
+        currentRoomCode = null;
         gameOver = false;
         serverBoardSnapshot = null;
         serverTurn = '\0';
@@ -627,6 +676,8 @@ public class DamkaFX extends Application {
             }
         } else if (message.startsWith("ROOM_CREATED ")) {
             String code = message.substring("ROOM_CREATED ".length()).trim();
+            currentRoomCode = code;
+            copyRoomButton.setText("Copy");
             roomCodeField.setText(code);
             roomCodeLabel.setText("Room " + code);
             isInRoom = true;
@@ -636,6 +687,8 @@ public class DamkaFX extends Application {
             showStatus("Room created. Share the code to invite a player.");
         } else if (message.startsWith("ROOM_JOINED ")) {
             String code = message.substring("ROOM_JOINED ".length()).trim();
+            currentRoomCode = code;
+            copyRoomButton.setText("Copy");
             roomCodeField.setText(code);
             roomCodeLabel.setText("Room " + code);
             isInRoom = true;
@@ -712,6 +765,8 @@ public class DamkaFX extends Application {
         leaveRequestPending = false;
         resignRequestPending = false;
         myPlayerColor = null;
+        currentRoomCode = null;
+        copyRoomButton.setText("Copy");
         serverBoardSnapshot = null;
         serverTurn = '\0';
         moveRequestPending = false;

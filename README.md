@@ -19,7 +19,7 @@ For a game on one computer, no terminal commands are needed:
 
 The Java extension uses its configured runtime and the project's JavaFX dependencies. If VS Code reports build errors, fix them first rather than continuing with an old compiled version. If the JavaFX dependencies have not been imported, refresh the Gradle project or use the Gradle commands below.
 
-Create a room in the first window. Enter its code and join in the second window. Select one of your pieces, then an empty destination. Captures are required when available; after a capture chain, continue with the same piece. The server decides the turn and result. Use **Resign** or **Leave room** to end a match, then create or join another.
+Create a room in the first window. Click **Copy** beside the room code, paste it in the second window, and join. Select one of your pieces, then an empty destination. Captures are required when available; after a capture chain, continue with the same piece. Errors appear in a small floating card; close it with **×** or complete a successful action. Showing an error does not resize the board. The server decides the turn and result. Use **Resign** or **Leave room** to end a match, then create or join another.
 
 **Play vs BOT** only needs `Main.java`; it works without starting the server.
 
