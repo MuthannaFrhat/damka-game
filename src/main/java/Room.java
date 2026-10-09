@@ -16,6 +16,9 @@ public class Room {
     private final PrintWriter firstOutput;
     private Socket secondPlayer;
     private PrintWriter secondOutput;
+    private Position captureContinuationPosition;
+    private boolean gameOver;
+    private boolean closed;
 
     private Room(String code, Socket firstPlayer, PrintWriter firstOutput) {
         this.code = code;
@@ -40,7 +43,7 @@ public class Room {
         Room room = new Room(code, player, output);
         rooms.put(code, room);
         output.println("ROOM_CREATED " + code);
-        output.println("PLAYER x");
+        output.println("PLAYER X");
         return room;
     }
 
@@ -60,57 +63,270 @@ public class Room {
             return null;
         }
 
-        room.secondPlayer = player;
-        room.secondOutput = output;
-        // Acknowledge joining before notifying either player that the room is ready.
-        output.println("ROOM_JOINED " + code);
-        room.firstOutput.println("ROOM_READY " + code);
-        output.println("PLAYER o");
-        output.println("ROOM_READY " + code);
-        room.sendInitialState();
-        if (room.firstOutput.checkError() || output.checkError()) {
-            room.disconnect();
+        if (!room.join(player, output)) {
+            return null;
         }
         return room;
     }
 
-    // Serialize the authoritative board as 64 characters, from row 0 to row 7.
-    private void sendInitialState() {
-        StringBuilder board = new StringBuilder();
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                Piece piece = game.getBoard().getPiece(row, col);
-                board.append(piece == null ? '.' : piece.getSymbol());
+    private synchronized boolean join(Socket player, PrintWriter output) {
+        if (closed || secondPlayer != null) {
+            output.println("ERROR Room is full.");
+            return false;
+        }
+
+        secondPlayer = player;
+        secondOutput = output;
+        output.println("ROOM_JOINED " + code);
+        output.println("PLAYER O");
+        firstOutput.println("ROOM_READY " + code);
+        output.println("ROOM_READY " + code);
+        if (!broadcastState()) {
+            closeForDisconnect(firstOutput.checkError() ? firstPlayer : secondPlayer);
+        }
+        return true;
+    }
+
+    public synchronized boolean isClosed() {
+        return closed;
+    }
+
+    public void handleMove(Socket requester, String message) {
+        Socket disconnectedPlayer = null;
+        boolean removeRoomAfterMove = false;
+        synchronized (this) {
+            PrintWriter requesterOutput;
+            char requesterSymbol;
+            if (requester == firstPlayer) {
+                requesterOutput = firstOutput;
+                requesterSymbol = 'x';
+            } else if (requester == secondPlayer) {
+                requesterOutput = secondOutput;
+                requesterSymbol = 'o';
+            } else {
+                return;
+            }
+
+            if (closed) {
+                requesterOutput.println("ERROR Room is closed.");
+                return;
+            }
+            if (gameOver) {
+                requesterOutput.println("ERROR Game is over.");
+                return;
+            }
+            if (secondPlayer == null) {
+                requesterOutput.println("ERROR Both players must be connected before moving.");
+                return;
+            }
+
+            String[] fields = message.trim().split("\\s+");
+            if (fields.length != 5 || !"MOVE".equals(fields[0])) {
+                requesterOutput.println("ERROR Expected MOVE <fromRow> <fromCol> <toRow> <toCol>.");
+                return;
+            }
+
+            int[] coordinates = new int[4];
+            try {
+                for (int index = 0; index < coordinates.length; index++) {
+                    coordinates[index] = Integer.parseInt(fields[index + 1]);
+                    if (coordinates[index] < 0 || coordinates[index] > 7) {
+                        requesterOutput.println("ERROR Coordinates must be between 0 and 7.");
+                        return;
+                    }
+                }
+            } catch (NumberFormatException exception) {
+                requesterOutput.println("ERROR Coordinates must be integers.");
+                return;
+            }
+
+            if (game.getCurrentPlayer().getSymbol() != requesterSymbol) {
+                requesterOutput.println("ERROR It is not your turn.");
+                return;
+            }
+
+            int fromRow = coordinates[0];
+            int fromCol = coordinates[1];
+            int toRow = coordinates[2];
+            int toCol = coordinates[3];
+            if (captureContinuationPosition != null
+                    && (captureContinuationPosition.getRow() != fromRow
+                    || captureContinuationPosition.getCol() != fromCol)) {
+                requesterOutput.println("ERROR Continue capturing with the same piece.");
+                return;
+            }
+
+            Position from = new Position(fromRow, fromCol);
+            Position to = new Position(toRow, toCol);
+            if (!game.move(from, to)) {
+                requesterOutput.println("ERROR Invalid move.");
+                return;
+            }
+
+            if (Math.abs(toRow - fromRow) == 2 && game.canCaptureAgain(to)) {
+                captureContinuationPosition = to;
+            } else {
+                captureContinuationPosition = null;
+            }
+
+            int capturedRow = Math.abs(toRow - fromRow) == 2 ? (fromRow + toRow) / 2 : -1;
+            int capturedCol = Math.abs(toCol - fromCol) == 2 ? (fromCol + toCol) / 2 : -1;
+            if (!broadcastMove(fromRow, fromCol, toRow, toCol, capturedRow, capturedCol)) {
+                disconnectedPlayer = firstOutput.checkError() ? firstPlayer : secondPlayer;
+            } else {
+                String winner = game.getWinner();
+                if (winner != null) {
+                    gameOver = true;
+                    closed = true;
+                    removeRoomAfterMove = true;
+                    broadcastGameOver(winnerSymbol(winner), "RULES");
+                }
             }
         }
-        String message = "STATE " + game.getCurrentPlayer().getSymbol() + " " + board;
+
+        if (disconnectedPlayer != null) {
+            closeForDisconnect(disconnectedPlayer);
+        } else if (removeRoomAfterMove) {
+            removeFromRooms();
+        }
+    }
+
+    private boolean broadcastMove(int fromRow, int fromCol, int toRow, int toCol,
+                                  int capturedRow, int capturedCol) {
+        String moveMessage = "MOVE_APPLIED " + fromRow + " " + fromCol + " " + toRow + " " + toCol
+                + " " + capturedRow + " " + capturedCol;
+        firstOutput.println(moveMessage);
+        secondOutput.println(moveMessage);
+        return broadcastState();
+    }
+
+    private boolean broadcastState() {
+        String boardMessage = "BOARD " + encodeBoard();
+        String turnMessage = "TURN " + Character.toUpperCase(game.getCurrentPlayer().getSymbol());
+        firstOutput.println(boardMessage);
+        secondOutput.println(boardMessage);
+        firstOutput.println(turnMessage);
+        secondOutput.println(turnMessage);
+        return !firstOutput.checkError() && !secondOutput.checkError();
+    }
+
+    private String encodeBoard() {
+        StringBuilder encodedBoard = new StringBuilder(64);
+        Board board = game.getBoard();
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                Piece piece = board.getPiece(row, col);
+                encodedBoard.append(piece == null ? '.' : piece.getSymbol());
+            }
+        }
+        return encodedBoard.toString();
+    }
+
+    public boolean resign(Socket player) {
+        char winner = 'X';
+        synchronized (this) {
+            if (closed || gameOver || secondPlayer == null) {
+                sendError(player, "Cannot resign from an inactive game.");
+                return false;
+            }
+            if (player == firstPlayer) {
+                winner = 'O';
+            } else if (player == secondPlayer) {
+                winner = 'X';
+            } else {
+                return false;
+            }
+            gameOver = true;
+            broadcastGameOver(winner, "RESIGNATION");
+            closed = true;
+        }
+        removeFromRooms();
+        return true;
+    }
+
+    public void leave(Socket player) {
+        synchronized (this) {
+            if (closed || (player != firstPlayer && player != secondPlayer)) {
+                sendError(player, "You are not in an active room.");
+                return;
+            }
+
+            boolean resultAlreadySent = gameOver;
+            if (player == firstPlayer) {
+                firstOutput.println("ROOM_LEFT");
+                if (secondOutput != null) {
+                    secondOutput.println(resultAlreadySent
+                            ? "ROOM_CLOSED" : "GAME_OVER O OPPONENT_LEFT");
+                }
+            } else {
+                secondOutput.println("ROOM_LEFT");
+                firstOutput.println(resultAlreadySent
+                        ? "ROOM_CLOSED" : "GAME_OVER X OPPONENT_LEFT");
+            }
+            closed = true;
+            gameOver = true;
+        }
+        removeFromRooms();
+    }
+
+    public void playerDisconnected(Socket player) {
+        Socket otherPlayer = null;
+        synchronized (this) {
+            if (closed || (player != firstPlayer && player != secondPlayer)) {
+                return;
+            }
+            if (player == firstPlayer) {
+                otherPlayer = secondPlayer;
+            } else {
+                otherPlayer = firstPlayer;
+            }
+
+            closed = true;
+            if (otherPlayer != null && !gameOver) {
+                gameOver = true;
+                broadcastGameOver(player == firstPlayer ? 'O' : 'X', "OPPONENT_DISCONNECTED");
+            } else if (otherPlayer != null) {
+                otherOutput(otherPlayer).println("ROOM_CLOSED OPPONENT_DISCONNECTED");
+            }
+        }
+        removeFromRooms();
+    }
+
+    private void closeForDisconnect(Socket player) {
+        playerDisconnected(player);
+    }
+
+    private void broadcastGameOver(char winner, String reason) {
+        String message = "GAME_OVER " + winner + " " + reason;
         firstOutput.println(message);
-        secondOutput.println(message);
+        if (secondOutput != null) {
+            secondOutput.println(message);
+        }
+    }
+
+    private PrintWriter otherOutput(Socket player) {
+        return player == firstPlayer ? firstOutput : secondOutput;
+    }
+
+    private void sendError(Socket player, String message) {
+        if (player == firstPlayer) {
+            firstOutput.println("ERROR " + message);
+        } else if (player == secondPlayer && secondOutput != null) {
+            secondOutput.println("ERROR " + message);
+        }
+    }
+
+    private char winnerSymbol(String winner) {
+        return winner.contains("Player X") ? 'X' : 'O';
+    }
+
+    private void removeFromRooms() {
+        synchronized (Room.class) {
+            rooms.remove(code, this);
+        }
     }
 
     public void disconnect() {
-        synchronized (Room.class) {
-            // Both workers may detect the same closed room; clean it up only once.
-            if (rooms.get(code) != this) {
-                return;
-            }
-            rooms.remove(code);
-            firstOutput.println("ROOM_CLOSED " + code);
-            if (secondOutput != null) {
-                secondOutput.println("ROOM_CLOSED " + code);
-            }
-            closeSocket(firstPlayer);
-            if (secondPlayer != null) {
-                closeSocket(secondPlayer);
-            }
-        }
-    }
-
-    private static void closeSocket(Socket socket) {
-        try {
-            socket.close();
-        } catch (IOException exception) {
-            System.out.println("Could not close player connection: " + exception.getMessage());
-        }
+        playerDisconnected(firstPlayer);
     }
 }

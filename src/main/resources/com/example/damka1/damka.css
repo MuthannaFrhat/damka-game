@@ -1,0 +1,144 @@
+.app-root {
+    -fx-font-family: "Segoe UI";
+    -fx-background-color: #111d19;
+}
+
+.content-scroll,
+.content-scroll > .viewport {
+    -fx-background-color: #111d19;
+    -fx-background: #111d19;
+    -fx-border-color: transparent;
+}
+
+.app-content {
+    -fx-background-color: #111d19;
+    -fx-padding: 22;
+}
+
+.app-header {
+    -fx-background-color: #20352e;
+    -fx-padding: 18 20 16 20;
+    -fx-spacing: 12;
+    -fx-background-radius: 8;
+    -fx-border-color: #355448;
+    -fx-border-radius: 8;
+}
+
+.brand-block {
+    -fx-padding: 0 0 4 0;
+}
+
+.app-title {
+    -fx-font-family: "Segoe UI Semibold";
+    -fx-font-size: 25px;
+    -fx-text-fill: #f4f4e9;
+    -fx-font-weight: bold;
+}
+
+.app-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: #9ebcaf;
+}
+
+.connection-settings,
+.room-controls,
+.identity-row,
+.match-info,
+.inline-settings {
+    -fx-spacing: 9;
+    -fx-alignment: center-left;
+}
+
+.connection-settings > .label,
+.inline-settings > .label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #c0d4c8;
+}
+
+.text-field,
+.combo-box-base {
+    -fx-background-color: #f1f3ec;
+    -fx-text-fill: #1d3028;
+    -fx-background-radius: 5;
+    -fx-border-color: #9caf9f;
+    -fx-border-radius: 5;
+    -fx-padding: 6 9 6 9;
+    -fx-prompt-text-fill: #718178;
+}
+
+.button {
+    -fx-background-color: #72ba8d;
+    -fx-text-fill: #12241c;
+    -fx-font-weight: bold;
+    -fx-background-radius: 5;
+    -fx-padding: 8 13;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: #8acda1;
+}
+
+.button:disabled {
+    -fx-opacity: 0.48;
+}
+
+.room-controls .button {
+    -fx-background-color: #d6e7d9;
+}
+
+.room-controls .button:hover {
+    -fx-background-color: #e4f0e6;
+}
+
+#resignButton {
+    -fx-background-color: #e76752;
+    -fx-text-fill: #ffffff;
+}
+
+#resignButton:hover {
+    -fx-background-color: #f27c66;
+}
+
+#leaveRoomButton {
+    -fx-background-color: #38584c;
+    -fx-text-fill: #f1f5ee;
+}
+
+#leaveRoomButton:hover {
+    -fx-background-color: #496d5d;
+}
+
+.identity-row .label,
+.match-info .label {
+    -fx-font-size: 13px;
+    -fx-text-fill: #e5eee6;
+}
+
+.match-info #turnLabel {
+    -fx-font-family: "Segoe UI Semibold";
+    -fx-font-size: 16px;
+    -fx-text-fill: #f0b44d;
+}
+
+.status-line {
+    -fx-font-size: 12px;
+    -fx-text-fill: #bed0c3;
+    -fx-wrap-text: true;
+}
+
+.board-frame {
+    -fx-background-color: #172b24;
+    -fx-padding: 8;
+    -fx-background-radius: 8;
+    -fx-border-color: #496958;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+}
+
+.scroll-bar:vertical .thumb,
+.scroll-bar:horizontal .thumb {
+    -fx-background-color: #496958;
+    -fx-background-radius: 4;
+}

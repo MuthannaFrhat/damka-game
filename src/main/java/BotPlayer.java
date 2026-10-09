@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.List;
 
 public class BotPlayer {
@@ -20,7 +21,21 @@ public class BotPlayer {
     }
 
     public MoveChoice findBestMove(Game game, int depth, char botSymbol) {
+        return findBestMove(game, depth, botSymbol, null);
+    }
+
+    public MoveChoice findBestMove(Game game, int depth, char botSymbol, Position forcedFrom) {
         List<Game.Move> moves = game.getValidMoves(botSymbol);
+        if (forcedFrom != null) {
+            List<Game.Move> continuationMoves = new ArrayList<>();
+            for (Game.Move move : moves) {
+                if (move.getFrom().getRow() == forcedFrom.getRow()
+                        && move.getFrom().getCol() == forcedFrom.getCol()) {
+                    continuationMoves.add(move);
+                }
+            }
+            moves = continuationMoves;
+        }
         if (moves.isEmpty()) {
             return null;
         }

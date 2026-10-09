@@ -5,17 +5,35 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 
 public class DamkaServer {
     public static void main(String[] args) throws IOException {
-        try (ServerSocket server = new ServerSocket(5000)) {
-            System.out.println("Server listening on port 5000. Press Ctrl+C to stop.");
-            while (true) {
-                Socket client = server.accept();
-                Thread worker = new Thread(() -> handleClient(client), "damka-client");
-                worker.start();
+        if (args.length > 1) {
+            throw new IllegalArgumentException("Usage: DamkaServer [port]");
+        }
+        int port = args.length == 0 ? 5000 : Integer.parseInt(args[0]);
+        try (ServerSocket server = new ServerSocket(port)) {
+            serve(server);
+        }
+    }
+
+    static void serve(ServerSocket server) throws IOException {
+        System.out.println("Server listening on port " + server.getLocalPort() + ". Press Ctrl+C to stop.");
+        while (!server.isClosed()) {
+            Socket client;
+            try {
+                client = server.accept();
+            } catch (SocketException exception) {
+                if (server.isClosed()) {
+                    return;
+                }
+                throw exception;
             }
+
+            Thread worker = new Thread(() -> handleClient(client), "damka-client");
+            worker.start();
         }
     }
 
@@ -29,14 +47,33 @@ public class DamkaServer {
 
             String message;
             while ((message = input.readLine()) != null) {
-                if (room != null) {
-                    output.println("ERROR You are already in a room.");
-                } else if ("CREATE_ROOM".equals(message)) {
-                    room = Room.createRoom(connection, output);
-                } else if ("JOIN_ROOM".equals(message) || message.startsWith("JOIN_ROOM ")) {
-                    room = Room.joinRoom(message, connection, output);
+                if (room != null && room.isClosed()) {
+                    room = null;
+                }
+
+                if (room == null) {
+                    if ("CREATE_ROOM".equals(message)) {
+                        room = Room.createRoom(connection, output);
+                    } else if ("JOIN_ROOM".equals(message) || message.startsWith("JOIN_ROOM ")) {
+                        room = Room.joinRoom(message, connection, output);
+                    } else if (message.startsWith("MOVE")) {
+                        output.println("ERROR You are not in a room.");
+                    } else if ("RESIGN".equals(message) || "LEAVE_ROOM".equals(message)) {
+                        output.println("ERROR You are not in a room.");
+                    } else {
+                        output.println("ERROR Unknown request. Use CREATE_ROOM or JOIN_ROOM <code>.");
+                    }
+                } else if (message.startsWith("MOVE")) {
+                    room.handleMove(connection, message);
+                } else if ("RESIGN".equals(message)) {
+                    if (room.resign(connection)) {
+                        room = null;
+                    }
+                } else if ("LEAVE_ROOM".equals(message)) {
+                    room.leave(connection);
+                    room = null;
                 } else {
-                    output.println("ERROR Unknown request. Use CREATE_ROOM or JOIN_ROOM <code>.");
+                    output.println("ERROR You are already in a room.");
                 }
                 if (output.checkError()) {
                     throw new IOException("Could not send response to client.");
@@ -46,7 +83,7 @@ public class DamkaServer {
             System.out.println("Connection closed: " + exception.getMessage());
         } finally {
             if (room != null) {
-                room.disconnect();
+                room.playerDisconnected(client);
             }
         }
     }

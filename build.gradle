@@ -25,7 +25,8 @@ tasks.withType(JavaCompile) {
 }
 
 application {
-    mainClass = 'Main'
+    mainModule = 'com.example.damka1'
+    mainClass = 'com.example.damka1.HelloApplication'
 }
 
 javafx {
@@ -41,13 +42,6 @@ dependencies {
 
 test {
     useJUnitPlatform()
-}
-
-tasks.register('tcpServer', JavaExec) {
-    group = 'application'
-    description = 'Run the room server on port 5000.'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'DamkaServer'
 }
 
 jlink {
