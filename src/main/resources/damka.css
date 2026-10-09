@@ -129,6 +129,18 @@
     -fx-line-spacing: 3;
 }
 
+/* Errors sit above the board and remain visible until the next successful action. */
+.status-line.status-error {
+    -fx-background-color: #fff0ed;
+    -fx-border-color: #dfa092;
+    -fx-background-radius: 7;
+    -fx-border-radius: 7;
+    -fx-padding: 12 14;
+    -fx-text-fill: #8e3026;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
 .inline-settings {
     -fx-alignment: center-left;
 }

@@ -95,6 +95,7 @@ public class DamkaFX extends Application {
         leaveRoomButton.getStyleClass().add("quiet-button");
         connectionStatusLabel = new Label("Create or join a room to begin.");
         connectionStatusLabel.setWrapText(true);
+        connectionStatusLabel.setMaxWidth(Double.MAX_VALUE);
         roomCodeLabel = new Label("No room yet");
         roomCodeLabel.getStyleClass().add("room-code-label");
         playerColorLabel = new Label("Your seat is waiting");
@@ -125,7 +126,7 @@ public class DamkaFX extends Application {
         HBox matchHeading = new HBox(12, turnLabel, matchStatusLabel);
         matchHeading.setAlignment(Pos.CENTER_LEFT);
         matchHeading.getStyleClass().add("match-heading");
-        VBox boardSection = new VBox(16, matchHeading, boardView, boardHint);
+        VBox boardSection = new VBox(16, matchHeading, connectionStatusLabel, boardView, boardHint);
         boardSection.setAlignment(Pos.TOP_CENTER);
         boardSection.setMinWidth(0);
         boardSection.getStyleClass().add("board-section");
@@ -165,12 +166,13 @@ public class DamkaFX extends Application {
         Scene scene = new Scene(scrollPane);
         scene.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
         Runnable fitBoardToWindow = () -> {
-            double availableHeight = Math.max(280, scene.getHeight() - header.getHeight() - 150);
+            double availableHeight = Math.max(280, scene.getHeight() - header.getHeight() - connectionStatusLabel.getHeight() - 150);
             boardView.resizeToFit(boardSection.getWidth(), availableHeight);
         };
         boardSection.widthProperty().addListener((observable, oldWidth, newWidth) -> fitBoardToWindow.run());
         scene.heightProperty().addListener((observable, oldHeight, newHeight) -> fitBoardToWindow.run());
         header.heightProperty().addListener((observable, oldHeight, newHeight) -> fitBoardToWindow.run());
+        connectionStatusLabel.heightProperty().addListener((observable, oldHeight, newHeight) -> fitBoardToWindow.run());
 
         Rectangle2D visualBounds = Screen.getPrimary().getVisualBounds();
         stage.setWidth(Math.min(1080, visualBounds.getWidth() * 0.92));
@@ -216,7 +218,7 @@ public class DamkaFX extends Application {
         HBox matchActions = new HBox(8, resignButton, leaveRoomButton);
         matchActions.setAlignment(Pos.CENTER_LEFT);
         VBox panel = new VBox(10, title, description, createRoomButton, joinLabel,
-                joinControls, roomIdentity, connectionStatusLabel, matchActions);
+                joinControls, roomIdentity, matchActions);
         panel.getStyleClass().add("card");
         return panel;
     }
@@ -265,7 +267,7 @@ public class DamkaFX extends Application {
         botDepth = getDepthFromDifficulty();
         playerColorLabel.setText("You play forest · Player X");
         roomCodeLabel.setText("Local practice");
-        connectionStatusLabel.setText("No server needed. Select a piece to begin.");
+        showStatus("No server needed. Select a piece to begin.");
         matchStatusLabel.setText("Against BOT");
         turnLabel.setText("Your turn");
         drawBoard();
@@ -297,7 +299,7 @@ public class DamkaFX extends Application {
         }
         if (ownPiece && !mustContinueCapture) {
             if (botGame.playerMustCapture() && !botGame.canCaptureAgain(clicked)) {
-                connectionStatusLabel.setText("Select a piece that can capture.");
+                showError("Select a piece that can capture.");
                 return;
             }
             selectedPosition = clicked;
@@ -313,8 +315,8 @@ public class DamkaFX extends Application {
         Piece source = botGame.getBoard().getPiece(from.getRow(), from.getCol());
         Piece appearance = new Piece(source.getSymbol()); // Save appearance before promotion.
         if (!botGame.move(from, to)) {
-            connectionStatusLabel.setText(mustContinueCapture ? "Continue capturing with the same piece."
-                    : botGame.playerMustCapture() ? "A capture is required." : "Invalid move. Choose another destination.");
+            showError(mustContinueCapture ? "Continue capturing with the same piece."
+                    : botGame.playerMustCapture() ? "A capture is required." : "Invalid move.");
             return;
         }
         boolean capture = Math.abs(to.getRow() - from.getRow()) == 2;
@@ -322,7 +324,7 @@ public class DamkaFX extends Application {
                 ? new Position((from.getRow() + to.getRow()) / 2, (from.getCol() + to.getCol()) / 2)
                 : null;
         selectedPosition = null;
-        connectionStatusLabel.setText("Move accepted.");
+        showStatus("Move accepted.");
         boardView.animateMove(from, to, appearance, captured, () -> finalizeMoveOutcome(to, capture));
     }
 
@@ -384,6 +386,25 @@ public class DamkaFX extends Application {
         return 1;
     }
 
+    // Normal feedback clears the error appearance after a successful action.
+    private void showStatus(String message) {
+        connectionStatusLabel.getStyleClass().remove("status-error");
+        connectionStatusLabel.setText(message);
+    }
+
+    private void showError(String message) {
+        if ("Invalid move.".equals(message)) {
+            message = "Move not allowed.\nChoose an empty diagonal square. Regular pieces move forward. "
+                    + "If a capture is available, you must take it.";
+        } else if ("A capture is required.".equals(message)) {
+            message = "Capture required.\nJump over an opponent’s piece into an empty diagonal square.";
+        } else {
+            message = "Please check:\n" + message;
+        }
+        showStatus(message);
+        connectionStatusLabel.getStyleClass().add("status-error");
+    }
+
     private void updateControls() {
         boolean canChooseRoom = !isConnecting && !roomRequestPending && !isInRoom;
         createRoomButton.setDisable(!canChooseRoom);
@@ -404,7 +425,7 @@ public class DamkaFX extends Application {
     private void joinRoom() {
         String roomCode = roomCodeField.getText() == null ? "" : roomCodeField.getText().trim().toUpperCase();
         if (!roomCode.matches("[A-Z0-9]{6}")) {
-            connectionStatusLabel.setText(roomCode.isEmpty()
+            showError(roomCode.isEmpty()
                     ? "Enter the six-character room code."
                     : "Room codes contain six letters or numbers.");
             roomCodeField.requestFocus();
@@ -438,7 +459,7 @@ public class DamkaFX extends Application {
 
         boolean connected = activeRoomConnection != null && activeRoomConnection.isConnected();
         if (connected) {
-            connectionStatusLabel.setText("Sending room request...");
+            showStatus("Sending room request...");
             sendNetworkCommand(request);
             return;
         }
@@ -448,14 +469,14 @@ public class DamkaFX extends Application {
 
     private void connectAndSend(String request) {
         isConnecting = true;
-        connectionStatusLabel.setText("Connecting to server...");
+        showStatus("Connecting to server...");
         updateControls();
         activeRoomConnection = new RoomConnection(serverHost, serverPort, new RoomConnection.Listener() {
             @Override
             public void onConnected(RoomConnection connection) {
                 onConnectionEvent(connection, () -> {
                     isConnecting = false;
-                    connectionStatusLabel.setText("Connected. Waiting for your room...");
+                    showStatus("Connected. Waiting for your room...");
                     updateControls();
                 });
             }
@@ -470,7 +491,7 @@ public class DamkaFX extends Application {
                 onConnectionEvent(connection, () -> {
                     closeConnection();
                     resetOnlineRoom();
-                    connectionStatusLabel.setText("Connection ended: " + detail);
+                    showError("Connection ended: " + detail);
                     updateControls();
                 });
             }
@@ -508,7 +529,7 @@ public class DamkaFX extends Application {
         moveRequestPending = false;
         selectedPosition = null;
         sendNetworkCommand("RESIGN");
-        connectionStatusLabel.setText("Resigning...");
+        showStatus("Resigning...");
         updateControls();
     }
 
@@ -520,7 +541,7 @@ public class DamkaFX extends Application {
         moveRequestPending = false;
         selectedPosition = null;
         sendNetworkCommand("LEAVE_ROOM");
-        connectionStatusLabel.setText("Leaving room...");
+        showStatus("Leaving room...");
         updateControls();
     }
 
@@ -568,7 +589,7 @@ public class DamkaFX extends Application {
                     new Piece(symbol), captured, this::processIncomingMessages);
             updateControls();
         } catch (NumberFormatException exception) {
-            connectionStatusLabel.setText("The server sent an invalid move.");
+            showError("The server sent an invalid move.");
         }
     }
 
@@ -581,7 +602,7 @@ public class DamkaFX extends Application {
             String snapshot = message.substring("BOARD ".length());
             serverTurn = '\0';
             if (!snapshot.matches("[.xoXO]{64}")) {
-                connectionStatusLabel.setText("The server sent an invalid board.");
+                showError("The server sent an invalid board.");
                 return;
             }
             serverBoardSnapshot = snapshot;
@@ -592,7 +613,7 @@ public class DamkaFX extends Application {
                 serverTurn = turn.charAt(0);
                 if (moveRequestPending) {
                     moveRequestPending = false;
-                    connectionStatusLabel.setText("Move accepted.");
+                    showStatus("Move accepted.");
                 }
                 turnLabel.setText(myPlayerColor != null && serverTurn == myPlayerColor.charAt(0)
                         ? "Your turn" : "Opponent’s turn");
@@ -612,7 +633,7 @@ public class DamkaFX extends Application {
             roomRequestPending = false;
             matchStatusLabel.setText("Waiting for opponent");
             turnLabel.setText("Waiting for opponent");
-            connectionStatusLabel.setText("Room created. Share the code to invite a player.");
+            showStatus("Room created. Share the code to invite a player.");
         } else if (message.startsWith("ROOM_JOINED ")) {
             String code = message.substring("ROOM_JOINED ".length()).trim();
             roomCodeField.setText(code);
@@ -620,21 +641,21 @@ public class DamkaFX extends Application {
             isInRoom = true;
             roomRequestPending = false;
             matchStatusLabel.setText("Joining opponent");
-            connectionStatusLabel.setText("Joined room " + code + ".");
+            showStatus("Joined room " + code + ".");
         } else if (message.startsWith("ROOM_READY ")) {
             isInRoom = true;
             roomRequestPending = false;
             gameOver = false;
             matchStatusLabel.setText("Online match");
-            connectionStatusLabel.setText("Both players connected.");
+            showStatus("Both players connected.");
         } else if (message.startsWith("GAME_OVER ")) {
             handleGameOver(message);
         } else if ("ROOM_LEFT".equals(message)) {
             resetOnlineRoom();
-            connectionStatusLabel.setText("You left the room. Create or join another match.");
+            showStatus("You left the room. Create or join another match.");
         } else if (message.startsWith("ROOM_CLOSED")) {
             resetOnlineRoom();
-            connectionStatusLabel.setText("The room is closed.");
+            showStatus("The room is closed.");
         } else if (message.startsWith("ERROR ")) {
             roomRequestPending = false;
             leaveRequestPending = false;
@@ -647,7 +668,7 @@ public class DamkaFX extends Application {
                 selectedPosition = null;
                 drawBoard();
             }
-            connectionStatusLabel.setText(message.substring("ERROR ".length()));
+            showError(message.substring("ERROR ".length()));
         }
         // TURN follows BOARD; controls reflect the complete state once both are processed.
         updateControls();
@@ -656,7 +677,7 @@ public class DamkaFX extends Application {
     private void handleGameOver(String message) {
         String[] fields = message.trim().split("\\s+");
         if (fields.length < 3) {
-            connectionStatusLabel.setText("The server ended the match.");
+            showStatus("The server ended the match.");
             gameOver = true;
             return;
         }
@@ -672,14 +693,14 @@ public class DamkaFX extends Application {
         turnLabel.setText("Match finished");
         drawBoard();
         if ("RESIGNATION".equals(reason)) {
-            connectionStatusLabel.setText(myPlayerColor != null && winner == myPlayerColor.charAt(0)
+            showStatus(myPlayerColor != null && winner == myPlayerColor.charAt(0)
                     ? "You win by resignation." : "You resigned. Player " + winner + " wins.");
         } else if ("OPPONENT_LEFT".equals(reason)) {
-            connectionStatusLabel.setText("Opponent left. You win.");
+            showStatus("Opponent left. You win.");
         } else if ("OPPONENT_DISCONNECTED".equals(reason)) {
-            connectionStatusLabel.setText("Opponent disconnected. You win.");
+            showStatus("Opponent disconnected. You win.");
         } else {
-            connectionStatusLabel.setText("Player " + winner + " wins by game rules.");
+            showStatus("Player " + winner + " wins by game rules.");
         }
     }
 
@@ -729,7 +750,7 @@ public class DamkaFX extends Application {
             drawBoard();
             matchStatusLabel.setText(winner);
             turnLabel.setText("Match finished");
-            connectionStatusLabel.setText(winner);
+            showStatus(winner);
             return;
         }
 
@@ -737,7 +758,7 @@ public class DamkaFX extends Application {
             selectedPosition = target;
             mustContinueCapture = true;
             drawBoard();
-            connectionStatusLabel.setText(botGame.getCurrentPlayer().isBot()
+            showStatus(botGame.getCurrentPlayer().isBot()
                     ? "BOT continues its capture." : "Continue capturing with the same piece.");
             maybePerformBotTurn();
             return;
@@ -761,7 +782,7 @@ public class DamkaFX extends Application {
                 mustContinueCapture ? selectedPosition : null);
         if (move == null) {
             gameOver = true;
-            connectionStatusLabel.setText("BOT has no legal move.");
+            showStatus("BOT has no legal move.");
             turnLabel.setText("Match finished");
             return;
         }
