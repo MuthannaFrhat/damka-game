@@ -4,7 +4,11 @@ import java.net.Socket;
 import java.util.HashMap;
 import java.util.Random;
 
-/** Room storage and membership are protected by the Room class lock. */
+/**
+ * One room owns one server-side game and the two players' connections.
+ * Room.class protects the room-code map. Each room's own lock protects its game
+ * and orders messages from the two client threads.
+ */
 public class Room {
     private static final HashMap<String, Room> rooms = new HashMap<>();
     private static final Random random = new Random();
@@ -17,17 +21,12 @@ public class Room {
     private Socket secondPlayer;
     private PrintWriter secondOutput;
     private Position captureContinuationPosition;
-    private boolean gameOver;
     private boolean closed;
 
     private Room(String code, Socket firstPlayer, PrintWriter firstOutput) {
         this.code = code;
         this.firstPlayer = firstPlayer;
         this.firstOutput = firstOutput;
-    }
-
-    public String getCode() {
-        return code;
     }
 
     public static synchronized Room createRoom(Socket player, PrintWriter output) {
@@ -42,47 +41,57 @@ public class Room {
 
         Room room = new Room(code, player, output);
         rooms.put(code, room);
+        // Announce the creator's identity before another client can join.
         output.println("ROOM_CREATED " + code);
         output.println("PLAYER X");
         return room;
     }
 
-    public static synchronized Room joinRoom(String message, Socket player, PrintWriter output) {
+    public static Room joinRoom(String message, Socket player, PrintWriter output) {
         if (!message.matches("JOIN_ROOM [A-Z0-9]{6}")) {
             output.println("ERROR Invalid room code.");
             return null;
         }
         String code = message.substring("JOIN_ROOM ".length());
-        Room room = rooms.get(code);
+        Room room;
+        synchronized (Room.class) {
+            room = rooms.get(code);
+        }
         if (room == null) {
             output.println("ERROR Room not found.");
             return null;
         }
-        if (room.secondPlayer != null) {
-            output.println("ERROR Room is full.");
-            return null;
-        }
-
         if (!room.join(player, output)) {
             return null;
         }
         return room;
     }
 
-    private synchronized boolean join(Socket player, PrintWriter output) {
-        if (closed || secondPlayer != null) {
-            output.println("ERROR Room is full.");
-            return false;
-        }
+    private boolean join(Socket player, PrintWriter output) {
+        Socket disconnectedPlayer = null;
+        synchronized (this) {
+            if (closed) {
+                output.println("ERROR Room not found.");
+                return false;
+            }
+            if (secondPlayer != null) {
+                output.println("ERROR Room is full.");
+                return false;
+            }
 
-        secondPlayer = player;
-        secondOutput = output;
-        output.println("ROOM_JOINED " + code);
-        output.println("PLAYER O");
-        firstOutput.println("ROOM_READY " + code);
-        output.println("ROOM_READY " + code);
-        if (!broadcastState()) {
-            closeForDisconnect(firstOutput.checkError() ? firstPlayer : secondPlayer);
+            secondPlayer = player;
+            secondOutput = output;
+            output.println("ROOM_JOINED " + code);
+            output.println("PLAYER O");
+            firstOutput.println("ROOM_READY " + code);
+            output.println("ROOM_READY " + code);
+            if (!broadcastState()) {
+                disconnectedPlayer = firstOutput.checkError() ? firstPlayer : secondPlayer;
+            }
+        }
+        // Release the room lock before removing the entry from the shared map.
+        if (disconnectedPlayer != null) {
+            playerDisconnected(disconnectedPlayer);
         }
         return true;
     }
@@ -109,10 +118,6 @@ public class Room {
 
             if (closed) {
                 requesterOutput.println("ERROR Room is closed.");
-                return;
-            }
-            if (gameOver) {
-                requesterOutput.println("ERROR Game is over.");
                 return;
             }
             if (secondPlayer == null) {
@@ -176,7 +181,6 @@ public class Room {
             } else {
                 String winner = game.getWinner();
                 if (winner != null) {
-                    gameOver = true;
                     closed = true;
                     removeRoomAfterMove = true;
                     broadcastGameOver(winnerSymbol(winner), "RULES");
@@ -185,7 +189,7 @@ public class Room {
         }
 
         if (disconnectedPlayer != null) {
-            closeForDisconnect(disconnectedPlayer);
+            playerDisconnected(disconnectedPlayer);
         } else if (removeRoomAfterMove) {
             removeFromRooms();
         }
@@ -223,9 +227,9 @@ public class Room {
     }
 
     public boolean resign(Socket player) {
-        char winner = 'X';
+        char winner;
         synchronized (this) {
-            if (closed || gameOver || secondPlayer == null) {
+            if (closed || secondPlayer == null) {
                 sendError(player, "Cannot resign from an inactive game.");
                 return false;
             }
@@ -236,7 +240,6 @@ public class Room {
             } else {
                 return false;
             }
-            gameOver = true;
             broadcastGameOver(winner, "RESIGNATION");
             closed = true;
         }
@@ -251,49 +254,32 @@ public class Room {
                 return;
             }
 
-            boolean resultAlreadySent = gameOver;
             if (player == firstPlayer) {
                 firstOutput.println("ROOM_LEFT");
                 if (secondOutput != null) {
-                    secondOutput.println(resultAlreadySent
-                            ? "ROOM_CLOSED" : "GAME_OVER O OPPONENT_LEFT");
+                    secondOutput.println("GAME_OVER O OPPONENT_LEFT");
                 }
             } else {
                 secondOutput.println("ROOM_LEFT");
-                firstOutput.println(resultAlreadySent
-                        ? "ROOM_CLOSED" : "GAME_OVER X OPPONENT_LEFT");
+                firstOutput.println("GAME_OVER X OPPONENT_LEFT");
             }
             closed = true;
-            gameOver = true;
         }
         removeFromRooms();
     }
 
     public void playerDisconnected(Socket player) {
-        Socket otherPlayer = null;
         synchronized (this) {
             if (closed || (player != firstPlayer && player != secondPlayer)) {
                 return;
             }
-            if (player == firstPlayer) {
-                otherPlayer = secondPlayer;
-            } else {
-                otherPlayer = firstPlayer;
-            }
-
             closed = true;
-            if (otherPlayer != null && !gameOver) {
-                gameOver = true;
+            // Before the second player joins there is nobody to notify.
+            if (secondPlayer != null) {
                 broadcastGameOver(player == firstPlayer ? 'O' : 'X', "OPPONENT_DISCONNECTED");
-            } else if (otherPlayer != null) {
-                otherOutput(otherPlayer).println("ROOM_CLOSED OPPONENT_DISCONNECTED");
             }
         }
         removeFromRooms();
-    }
-
-    private void closeForDisconnect(Socket player) {
-        playerDisconnected(player);
     }
 
     private void broadcastGameOver(char winner, String reason) {
@@ -302,10 +288,6 @@ public class Room {
         if (secondOutput != null) {
             secondOutput.println(message);
         }
-    }
-
-    private PrintWriter otherOutput(Socket player) {
-        return player == firstPlayer ? firstOutput : secondOutput;
     }
 
     private void sendError(Socket player, String message) {
@@ -321,12 +303,11 @@ public class Room {
     }
 
     private void removeFromRooms() {
+        // Call only after releasing this room's lock: unrelated rooms can still
+        // be created or joined while a game's messages are being sent.
         synchronized (Room.class) {
             rooms.remove(code, this);
         }
     }
 
-    public void disconnect() {
-        playerDisconnected(firstPlayer);
-    }
 }

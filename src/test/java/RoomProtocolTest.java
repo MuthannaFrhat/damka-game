@@ -65,6 +65,56 @@ class RoomProtocolTest {
     }
 
     @Test
+    void rejectsMalformedMovesAndKeepsTheGameUsable() throws Exception {
+        try (Match match = openMatch()) {
+            match.x.send("MOVE 5 0 4");
+            assertEquals("ERROR Expected MOVE <fromRow> <fromCol> <toRow> <toCol>.", match.x.read());
+            match.x.send("MOVE 5 0 8 1");
+            assertEquals("ERROR Coordinates must be between 0 and 7.", match.x.read());
+            match.x.send("MOVE 5 0 -1 1");
+            assertEquals("ERROR Coordinates must be between 0 and 7.", match.x.read());
+            match.x.send("MOVE 5 0 four 1");
+            assertEquals("ERROR Coordinates must be integers.", match.x.read());
+
+            // Rejected requests must leave X's turn and initial pieces intact.
+            String board = acceptedMove(match, 'X', "MOVE 5 0 4 1", "TURN O");
+            assertEquals('.', board.charAt(40));
+            assertEquals('x', board.charAt(33));
+        }
+    }
+
+    @Test
+    void competingJoinRequestsAdmitOnlyOneSecondPlayer() throws Exception {
+        try (Peer creator = connect(); Peer candidateA = connect(); Peer candidateB = connect()) {
+            creator.send("CREATE_ROOM");
+            String code = creator.read().substring("ROOM_CREATED ".length());
+            assertEquals("PLAYER X", creator.read());
+
+            // Send both requests before reading either result. Separate server
+            // threads compete for the same room's second-player slot.
+            candidateA.send("JOIN_ROOM " + code);
+            candidateB.send("JOIN_ROOM " + code);
+            String replyA = candidateA.read();
+            String replyB = candidateB.read();
+            Peer joined = replyA.startsWith("ROOM_JOINED ") ? candidateA : candidateB;
+            Peer rejected = joined == candidateA ? candidateB : candidateA;
+            assertEquals("ROOM_JOINED " + code, joined == candidateA ? replyA : replyB);
+            assertEquals("ERROR Room is full.", joined == candidateA ? replyB : replyA);
+            assertEquals("PLAYER O", joined.read());
+            assertEquals("ROOM_READY " + code, joined.read());
+            assertEquals("ROOM_READY " + code, creator.read());
+            assertEquals(creator.read(), joined.read());
+            assertEquals("TURN X", creator.read());
+            assertEquals("TURN X", joined.read());
+
+            // Rejection does not accidentally assign the third client to a room.
+            rejected.send("CREATE_ROOM");
+            assertTrue(rejected.read().startsWith("ROOM_CREATED "));
+            assertEquals("PLAYER X", rejected.read());
+        }
+    }
+
+    @Test
     void preservesForcedCaptureAndSamePieceMultiCapture() throws Exception {
         try (Match match = openMatch()) {
             acceptedMove(match, 'X', "MOVE 5 0 4 1", "TURN O");

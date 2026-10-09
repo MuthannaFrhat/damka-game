@@ -1,76 +1,43 @@
 import javafx.application.Application;
-import javafx.animation.FadeTransition;
-import javafx.animation.ParallelTransition;
-import javafx.animation.PauseTransition;
-import javafx.animation.SequentialTransition;
-import javafx.animation.KeyFrame;
-import javafx.animation.KeyValue;
-import javafx.animation.Timeline;
 import javafx.scene.Scene;
-import javafx.scene.effect.DropShadow;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
-import javafx.scene.layout.StackPane;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.application.Platform;
-import javafx.beans.property.SimpleDoubleProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
-import javafx.geometry.Bounds;
-import javafx.geometry.Point2D;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.paint.Color;
-import javafx.scene.shape.Circle;
-import javafx.scene.shape.Rectangle;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
-import javafx.util.Duration;
 
-import java.net.InetSocketAddress;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Queue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
+/** Coordinates UI events and server messages. All fields here belong to the JavaFX Thread. */
 public class DamkaFX extends Application {
-    private Game game;
-    private GridPane boardGrid;
-    private StackPane boardStack;
-    private final StackPane[][] boardCells = new StackPane[8][8];
-    private final Rectangle[][] squareNodes = new Rectangle[8][8];
-    private final Circle[][] selectionRings = new Circle[8][8];
-    private final Circle[][] pieceNodes = new Circle[8][8];
+    // Local BOT game. Online Game/Board objects live on the server instead.
+    private Game botGame;
+    private BoardView boardView;
     private Label turnLabel;
+    private Label boardHint;
     private Position selectedPosition;
     private boolean gameOver = false;
     private Button botButton;
     private ComboBox<String> difficultyBox;
     private HBox difficultyControls;
-    private Pane animationPane;
-    private StackPane toastPane;
     private BotPlayer botPlayer;
-    private boolean botMode = false;
     private int botDepth = 1;
     private boolean mustContinueCapture = false;
-    private Position botCaptureContinuation;
+    // Window controls. Visual styling lives in damka.css.
     private Label connectionStatusLabel;
     private Label matchStatusLabel;
-    private TextField serverAddressField;
-    private TextField serverPortField;
     private TextField roomCodeField;
     private Button joinRoomButton;
     private Button createRoomButton;
@@ -79,69 +46,62 @@ public class DamkaFX extends Application {
     private Label roomCodeLabel;
     private Label playerColorLabel;
     private String myPlayerColor;
-    private volatile Socket serverSocket;
-    private volatile PrintWriter serverWriter;
-    private ExecutorService networkWriter;
-    private volatile int activeConnectionId = 0;
-    private volatile boolean isConnecting = false;
-    private volatile boolean applicationClosing = false;
-    private volatile boolean roomRequestPending = false;
+    // Online state: one connection, a display snapshot, and pending request flags.
+    private RoomConnection activeRoomConnection;
+    private boolean isConnecting;
+    private boolean applicationClosing;
+    private boolean roomRequestPending = false;
     private boolean leaveRequestPending;
-    private volatile boolean isInRoom = false;
-    private volatile String connectedHost;
-    private volatile int connectedPort;
+    private boolean isInRoom = false;
     private boolean isOnlineMode = true;
-    private boolean onlineGameOver;
     private boolean moveRequestPending = false;
-    private boolean moveBoardReceived = false;
-        private boolean resignRequestPending;
+    private boolean resignRequestPending;
+    // A server snapshot is for display only; never apply a move to this String.
     private String serverBoardSnapshot;
     private char serverTurn;
     private final Queue<String> incomingMessages = new ArrayDeque<>();
-    private boolean processingIncomingMessages;
-    private boolean animationRunning;
-    private ParallelTransition activeMovementAnimation;
-    private double tileSize = 68;
-
-    private static final double MAX_TILE_SIZE = 70;
+    // Override with -Ddamka.server.host=192.168.1.10 -Ddamka.server.port=5000 for LAN play.
+    private final String serverHost = System.getProperty("damka.server.host", "localhost");
+    private final int serverPort = Integer.parseInt(System.getProperty("damka.server.port", "5000"));
 
     @Override
     public void start(Stage stage) {
-        game = new Game();
+        botGame = new Game();
         botPlayer = new BotPlayer();
-        networkWriter = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "damka-network-writer");
-            thread.setDaemon(true);
-            return thread;
-        });
-
         turnLabel = new Label("Waiting for a match");
-        turnLabel.setId("turnLabel");
-        botButton = new Button("Play vs BOT");
+        turnLabel.getStyleClass().add("turn-label");
+        botButton = new Button("Play against BOT");
+        botButton.getStyleClass().add("secondary-button");
         difficultyBox = new ComboBox<>();
         difficultyBox.getItems().addAll("Easy", "Medium", "Hard");
         difficultyBox.setValue("Easy");
-        difficultyControls = new HBox(8, new Label("BOT level"), difficultyBox);
+        difficultyControls = new HBox(10, new Label("Difficulty"), difficultyBox);
+        HBox.setHgrow(difficultyBox, Priority.ALWAYS);
+        difficultyBox.setMaxWidth(Double.MAX_VALUE);
         difficultyControls.getStyleClass().add("inline-settings");
 
-        serverAddressField = new TextField("localhost");
-        serverAddressField.setPromptText("Server address");
-        serverPortField = new TextField("5000");
-        serverPortField.setPromptText("Port");
-        serverPortField.setPrefColumnCount(5);
         roomCodeField = new TextField();
         roomCodeField.setPromptText("Room code");
-        roomCodeField.setPrefColumnCount(8);
+        roomCodeField.setPrefColumnCount(6);
+        roomCodeField.getStyleClass().add("room-code-field");
+        HBox.setHgrow(roomCodeField, Priority.ALWAYS);
         joinRoomButton = new Button("Join");
-        createRoomButton = new Button("Create room");
+        createRoomButton = new Button("Create a room");
+        createRoomButton.getStyleClass().add("primary-button");
+        createRoomButton.setMaxWidth(Double.MAX_VALUE);
         resignButton = new Button("Resign");
-        resignButton.setId("resignButton");
+        resignButton.getStyleClass().add("danger-button");
         leaveRoomButton = new Button("Leave room");
-        leaveRoomButton.setId("leaveRoomButton");
-        connectionStatusLabel = new Label("Choose BOT or create/join an online room.");
-        roomCodeLabel = new Label("Room code: not created");
-        playerColorLabel = new Label("You are not assigned a player color");
-        matchStatusLabel = new Label("No active match");
+        leaveRoomButton.getStyleClass().add("quiet-button");
+        connectionStatusLabel = new Label("Create or join a room to begin.");
+        connectionStatusLabel.setWrapText(true);
+        roomCodeLabel = new Label("No room yet");
+        roomCodeLabel.getStyleClass().add("room-code-label");
+        playerColorLabel = new Label("Your seat is waiting");
+        playerColorLabel.getStyleClass().add("player-label");
+        matchStatusLabel = new Label("Ready when you are");
+        matchStatusLabel.getStyleClass().add("match-status");
+        matchStatusLabel.setWrapText(true);
         connectionStatusLabel.getStyleClass().add("status-line");
 
         createRoomButton.setOnAction(e -> createRoom());
@@ -149,344 +109,221 @@ public class DamkaFX extends Application {
         resignButton.setOnAction(e -> resignFromRoom());
         leaveRoomButton.setOnAction(e -> leaveRoom());
 
-        botButton.setOnAction(e -> {
-            if (isInRoom) {
-                connectionStatusLabel.setText("Leave the online room before starting BOT play.");
-                return;
-            }
-            stopMovementAnimation();
-            isOnlineMode = false;
-            serverBoardSnapshot = null;
-            serverTurn = '\0';
-            moveRequestPending = false;
-            moveBoardReceived = false;
-            botMode = true;
-            game = new Game(false, true);
-            botCaptureContinuation = null;
-            selectedPosition = null;
-            gameOver = false;
-            mustContinueCapture = false;
-            onlineGameOver = false;
-            matchStatusLabel.setText("Local BOT match");
-            turnLabel.setText("Turn: " + game.getCurrentPlayer().getName());
-            drawBoard();
-            botDepth = getDepthFromDifficulty();
-            maybePerformBotTurn();
-            updateControls();
-        });
+        botButton.setOnAction(e -> startBotGame());
 
         difficultyBox.setOnAction(e -> {
             botDepth = getDepthFromDifficulty();
-            if (botMode) {
-                turnLabel.setText("Turn: " + game.getCurrentPlayer().getName());
+            if (!isOnlineMode) {
+                turnLabel.setText(botGame.getCurrentPlayer().isBot() ? "BOT’s turn" : "Your turn");
                 maybePerformBotTurn();
             }
         });
 
-        boardGrid = new GridPane();
-        boardGrid.setPrefSize(tileSize * 8, tileSize * 8);
-        animationPane = new Pane();
-        animationPane.setPickOnBounds(false);
-        animationPane.setMouseTransparent(true);
-        boardStack = new StackPane(boardGrid, animationPane);
-        boardStack.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
-        boardStack.getStyleClass().add("board-frame");
-        VBox boardSection = new VBox(boardStack);
-        boardSection.setAlignment(Pos.CENTER);
-        boardSection.setMaxWidth(Double.MAX_VALUE);
+        boardView = new BoardView(this::handleClick);
+        boardHint = new Label("Select a piece, then choose its destination.");
+        boardHint.getStyleClass().add("board-hint");
+        HBox matchHeading = new HBox(12, turnLabel, matchStatusLabel);
+        matchHeading.setAlignment(Pos.CENTER_LEFT);
+        matchHeading.getStyleClass().add("match-heading");
+        VBox boardSection = new VBox(16, matchHeading, boardView, boardHint);
+        boardSection.setAlignment(Pos.TOP_CENTER);
+        boardSection.setMinWidth(0);
+        boardSection.getStyleClass().add("board-section");
 
-        Label titleLabel = new Label("DAMKA");
-        titleLabel.getStyleClass().add("app-title");
-        Label subtitleLabel = new Label("Online table");
-        subtitleLabel.getStyleClass().add("app-subtitle");
-        VBox brand = new VBox(2, titleLabel, subtitleLabel);
-        brand.getStyleClass().add("brand-block");
+        VBox sidebar = new VBox(16, buildRoomPanel(), buildBotPanel());
+        sidebar.setPrefWidth(260);
+        sidebar.getStyleClass().add("sidebar");
+        BorderPane tableLayout = new BorderPane();
+        tableLayout.setCenter(boardSection);
+        tableLayout.setRight(sidebar);
+        BorderPane.setMargin(sidebar, new Insets(0, 0, 0, 24));
 
-        HBox serverSettings = new HBox(8, new Label("Server"), serverAddressField,
-                new Label("Port"), serverPortField, botButton, difficultyControls);
-        serverSettings.setAlignment(Pos.CENTER_LEFT);
-        serverSettings.getStyleClass().add("connection-settings");
-
-        HBox roomControls = new HBox(8, createRoomButton, roomCodeField, joinRoomButton,
-                resignButton, leaveRoomButton);
-        roomControls.setAlignment(Pos.CENTER_LEFT);
-        roomControls.getStyleClass().add("room-controls");
-
-        HBox identity = new HBox(12, playerColorLabel, roomCodeLabel);
-        identity.setAlignment(Pos.CENTER_LEFT);
-        identity.getStyleClass().add("identity-row");
-        HBox matchInfo = new HBox(12, turnLabel, matchStatusLabel);
-        matchInfo.setAlignment(Pos.CENTER_LEFT);
-        matchInfo.getStyleClass().add("match-info");
-
-        VBox header = new VBox(12, brand, serverSettings, roomControls, identity, matchInfo, connectionStatusLabel);
-        header.getStyleClass().add("app-header");
-
+        HBox header = buildHeader();
         BorderPane content = new BorderPane();
         content.setTop(header);
-        content.setCenter(boardSection);
+        content.setCenter(tableLayout);
         content.getStyleClass().add("app-content");
 
-        // Toast / notification overlay
-        toastPane = new StackPane();
-        toastPane.setPickOnBounds(false);
-        toastPane.setMouseTransparent(true);
+        // Keep the board usable on small screens, with the room panel below it.
+        tableLayout.widthProperty().addListener((observable, oldWidth, newWidth) -> {
+            boolean narrowWindow = newWidth.doubleValue() < 780;
+            if (narrowWindow && tableLayout.getBottom() != sidebar) {
+                tableLayout.setRight(null);
+                tableLayout.setBottom(sidebar);
+                BorderPane.setMargin(sidebar, new Insets(24, 0, 0, 0));
+            } else if (!narrowWindow && tableLayout.getRight() != sidebar) {
+                tableLayout.setBottom(null);
+                tableLayout.setRight(sidebar);
+                BorderPane.setMargin(sidebar, new Insets(0, 0, 0, 24));
+            }
+        });
 
         ScrollPane scrollPane = new ScrollPane(content);
         scrollPane.setFitToWidth(true);
-        scrollPane.getStyleClass().add("content-scroll");
+        scrollPane.getStyleClass().addAll("content-scroll", "app-root");
 
-        StackPane appRoot = new StackPane(scrollPane, toastPane);
-        appRoot.getStyleClass().add("app-root");
-        StackPane.setAlignment(toastPane, Pos.TOP_CENTER);
-        StackPane.setMargin(toastPane, new Insets(10, 0, 0, 0));
-
-        Scene scene = new Scene(appRoot);
-        scene.getStylesheets().add(getClass().getResource("/com/example/damka1/damka.css").toExternalForm());
-        Runnable resizeToWindow = () -> {
-            double availableHeight = Math.max(40, scene.getHeight() - header.getHeight() - 56);
-            resizeBoard(Math.min(boardSection.getWidth(), availableHeight));
+        Scene scene = new Scene(scrollPane);
+        scene.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
+        Runnable fitBoardToWindow = () -> {
+            double availableHeight = Math.max(280, scene.getHeight() - header.getHeight() - 150);
+            boardView.resizeToFit(boardSection.getWidth(), availableHeight);
         };
-        boardSection.widthProperty().addListener((observable, oldWidth, newWidth) -> resizeToWindow.run());
-        scene.widthProperty().addListener((observable, oldWidth, newWidth) -> resizeToWindow.run());
-        scene.heightProperty().addListener((observable, oldHeight, newHeight) -> resizeToWindow.run());
-        header.heightProperty().addListener((observable, oldHeight, newHeight) -> resizeToWindow.run());
+        boardSection.widthProperty().addListener((observable, oldWidth, newWidth) -> fitBoardToWindow.run());
+        scene.heightProperty().addListener((observable, oldHeight, newHeight) -> fitBoardToWindow.run());
+        header.heightProperty().addListener((observable, oldHeight, newHeight) -> fitBoardToWindow.run());
 
         Rectangle2D visualBounds = Screen.getPrimary().getVisualBounds();
-        stage.setWidth(Math.min(980, visualBounds.getWidth() * 0.92));
-        stage.setHeight(Math.min(900, visualBounds.getHeight() * 0.9));
-        stage.setTitle("Damka | Online Checkers");
+        stage.setWidth(Math.min(1080, visualBounds.getWidth() * 0.92));
+        stage.setHeight(Math.min(820, visualBounds.getHeight() * 0.92));
+        stage.setMinWidth(Math.min(560, visualBounds.getWidth()));
+        stage.setMinHeight(Math.min(520, visualBounds.getHeight()));
+        stage.setTitle("Damka — Checkers");
         stage.setScene(scene);
         stage.show();
         stage.centerOnScreen();
-        resizeBoard(boardSection.getWidth());
+        fitBoardToWindow.run();
         drawBoard();
         updateControls();
     }
 
-    private void resizeBoard(double availableWidth) {
-        if (availableWidth <= 0) {
-            return;
-        }
-        double nextTileSize = Math.max(32, Math.min(MAX_TILE_SIZE, (availableWidth - 24) / 8));
-        if (Math.abs(nextTileSize - tileSize) < 0.5) {
-            return;
-        }
-        tileSize = nextTileSize;
-        double boardSize = tileSize * 8;
-        boardGrid.setPrefSize(boardSize, boardSize);
-        boardGrid.setMaxSize(boardSize, boardSize);
-        animationPane.setPrefSize(boardSize, boardSize);
-        boardStack.setPrefSize(boardSize + 16, boardSize + 16);
-        if (animationRunning) {
-            resizeExistingBoardNodes();
-        } else {
-            drawBoard();
-        }
+    private HBox buildHeader() {
+        Label title = new Label("damka");
+        title.getStyleClass().add("app-title");
+        Label subtitle = new Label("A classic game. A fresh challenge.");
+        subtitle.getStyleClass().add("app-subtitle");
+        VBox brand = new VBox(4, title, subtitle);
+        Pane space = new Pane();
+        HBox.setHgrow(space, Priority.ALWAYS);
+        Label badge = new Label("CHECKERS CLUB");
+        badge.getStyleClass().add("header-badge");
+        HBox header = new HBox(16, brand, space, badge);
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.getStyleClass().add("app-header");
+        return header;
     }
 
-    private void resizeExistingBoardNodes() {
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                StackPane cell = boardCells[row][col];
-                if (cell == null) {
-                    continue;
-                }
-                cell.setPrefSize(tileSize, tileSize);
-                squareNodes[row][col].setWidth(tileSize);
-                squareNodes[row][col].setHeight(tileSize);
-                Circle ring = selectionRings[row][col];
-                if (ring != null) {
-                    ring.setRadius(tileSize * 0.39);
-                    ring.setStrokeWidth(Math.max(3, tileSize * 0.065));
-                }
-                Circle piece = pieceNodes[row][col];
-                if (piece != null) {
-                    piece.setRadius(tileSize * 0.35);
-                    if (piece.getStroke() != null) {
-                        piece.setStrokeWidth(Math.max(3, tileSize * 0.06));
-                    }
-                }
-            }
-        }
+    private VBox buildRoomPanel() {
+        Label title = new Label("Play with a friend");
+        title.getStyleClass().add("section-title");
+        Label description = new Label("Share a code. Start a match.");
+        description.setWrapText(true);
+        description.getStyleClass().add("section-description");
+        Label joinLabel = new Label("HAVE A ROOM CODE?");
+        joinLabel.getStyleClass().add("eyebrow-label");
+        HBox joinControls = new HBox(8, roomCodeField, joinRoomButton);
+        VBox roomIdentity = new VBox(6, playerColorLabel, roomCodeLabel);
+        roomIdentity.getStyleClass().add("room-identity");
+        HBox matchActions = new HBox(8, resignButton, leaveRoomButton);
+        matchActions.setAlignment(Pos.CENTER_LEFT);
+        VBox panel = new VBox(10, title, description, createRoomButton, joinLabel,
+                joinControls, roomIdentity, connectionStatusLabel, matchActions);
+        panel.getStyleClass().add("card");
+        return panel;
     }
 
+    private VBox buildBotPanel() {
+        Label title = new Label("A little practice");
+        title.getStyleClass().add("section-title");
+        Label description = new Label("Play locally against the BOT.");
+        description.getStyleClass().add("section-description");
+        botButton.setMaxWidth(Double.MAX_VALUE);
+        VBox panel = new VBox(10, title, description, difficultyControls, botButton);
+        panel.getStyleClass().addAll("card", "practice-card");
+        return panel;
+    }
+
+    // Display a snapshot in either mode; this method does not apply game rules.
     private void drawBoard() {
-        boardGrid.getChildren().clear();
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                boardCells[row][col] = null;
-                squareNodes[row][col] = null;
-                selectionRings[row][col] = null;
-                pieceNodes[row][col] = null;
+        String snapshot = serverBoardSnapshot;
+        if (!isOnlineMode) {
+            StringBuilder cells = new StringBuilder(64);
+            Board board = botGame.getBoard();
+            for (int row = 0; row < 8; row++) {
+                for (int col = 0; col < 8; col++) {
+                    Piece piece = board.getPiece(row, col);
+                    cells.append(piece == null ? '.' : piece.getSymbol());
+                }
             }
+            snapshot = cells.toString();
         }
+        boardView.showBoard(snapshot, selectedPosition);
+        boardHint.setText(isOnlineMode && snapshot == null
+                ? "Your board appears when both players join."
+                : "Select a piece, then choose its destination.");
+    }
 
-        Board board = game.getBoard();
-
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                Rectangle square = new Rectangle(tileSize, tileSize);
-                squareNodes[row][col] = square;
-
-                if ((row + col) % 2 == 0) {
-                    square.setFill(Color.web("#DCE8D5"));
-                } else {
-                    square.setFill(Color.web("#315B4C"));
-                }
-
-                StackPane cell = new StackPane();
-                cell.setPrefSize(tileSize, tileSize);
-                cell.getChildren().add(square);
-
-                // Selection ring
-                if (selectedPosition != null
-                        && selectedPosition.getRow() == row
-                        && selectedPosition.getCol() == col) {
-                    Circle ring = new Circle(tileSize * 0.39);
-                    ring.setFill(Color.TRANSPARENT);
-                    ring.setStroke(Color.web("#F0B44D"));
-                    ring.setStrokeWidth(Math.max(3, tileSize * 0.065));
-                    ring.setMouseTransparent(true);
-                    cell.getChildren().add(ring);
-                    selectionRings[row][col] = ring;
-                }
-
-                Piece piece;
-                if (isOnlineMode) {
-                    char symbol = serverBoardSnapshot == null
-                            ? '.'
-                            : serverBoardSnapshot.charAt(row * 8 + col);
-                    piece = symbol == '.' ? null : new Piece(symbol);
-                } else {
-                    piece = board.getPiece(row, col);
-                }
-
-                if (piece != null) {
-                    double radius = tileSize * 0.35;
-                    Circle circle = new Circle(radius);
-
-                    if (piece.getSymbol() == 'x' || piece.getSymbol() == 'X') {
-                        circle.setFill(Color.web("#172A27"));
-                    } else {
-                        circle.setFill(Color.web("#E76752"));
-                    }
-
-                    if (piece.isKing()) {
-                        circle.setStroke(Color.web("#F0B44D"));
-                        circle.setStrokeWidth(Math.max(3, tileSize * 0.06));
-                    }
-
-                    circle.setMouseTransparent(true);
-                    DropShadow ds = new DropShadow(6, Color.color(0, 0, 0, 0.45));
-                    circle.setEffect(ds);
-
-                    cell.getChildren().add(circle);
-                    pieceNodes[row][col] = circle;
-                }
-
-                boardCells[row][col] = cell;
-                final int finalRow = row;
-                final int finalCol = col;
-                cell.setOnMouseClicked(e -> handleClick(finalRow, finalCol));
-
-                boardGrid.add(cell, col, row);
-            }
+    private void startBotGame() {
+        if (isConnecting || roomRequestPending || isInRoom) {
+            return;
         }
+        closeConnection(); // BOT play is fully local; old online callbacks are ignored.
+        resetOnlineRoom();
+        isOnlineMode = false;
+        botGame = new Game(false, true);
+        gameOver = false;
+        mustContinueCapture = false;
+        botDepth = getDepthFromDifficulty();
+        playerColorLabel.setText("You play forest · Player X");
+        roomCodeLabel.setText("Local practice");
+        connectionStatusLabel.setText("No server needed. Select a piece to begin.");
+        matchStatusLabel.setText("Against BOT");
+        turnLabel.setText("Your turn");
+        drawBoard();
+        updateControls();
     }
 
     private void handleClick(int row, int col) {
         if (isOnlineMode) {
             handleOnlineClick(row, col);
-            return;
-        }
-
-        if (gameOver || animationRunning) {
-            return;
-        }
-
-        if (selectedPosition == null) {
-            Piece piece = game.getBoard().getPiece(row, col);
-
-            if (piece != null && piece.belongsToPlayer(game.getCurrentPlayer().getSymbol())) {
-                Position clickedPosition = new Position(row, col);
-
-                if (game.playerMustCapture() && !game.canCaptureAgain(clickedPosition)) {
-                    showMessage("You must select a piece that can capture");
-                    return;
-                }
-
-                selectedPosition = clickedPosition;
-                drawBoard();
-            }
-
         } else {
+            handleBotClick(row, col);
+        }
+    }
 
-            // Click same selected piece again = cancel selection
-            if (selectedPosition.getRow() == row && selectedPosition.getCol() == col) {
-                if (mustContinueCapture) {
-                    showMessage("You must continue capturing with the same piece");
-                    return;
-                }
+    private void handleBotClick(int row, int col) {
+        if (gameOver || boardView.isAnimating() || botGame.getCurrentPlayer().isBot()) {
+            return;
+        }
+        Position clicked = new Position(row, col);
+        Piece piece = botGame.getBoard().getPiece(row, col);
+        boolean ownPiece = piece != null && piece.belongsToPlayer('x');
 
+        if (selectedPosition != null && selectedPosition.getRow() == row && selectedPosition.getCol() == col) {
+            if (!mustContinueCapture) {
                 selectedPosition = null;
                 drawBoard();
-                return;
             }
-
-            Piece clickedPiece = game.getBoard().getPiece(row, col);
-
-            // Click another own piece = change selection
-            if (!mustContinueCapture
-                    && clickedPiece != null
-                    && clickedPiece.belongsToPlayer(game.getCurrentPlayer().getSymbol())) {
-
-                Position newSelection = new Position(row, col);
-
-                if (game.playerMustCapture() && !game.canCaptureAgain(newSelection)) {
-                    showMessage("You must select a piece that can capture");
-                    return;
-                }
-
-                selectedPosition = newSelection;
-                drawBoard();
-                return;
-            }
-
-            Position target = new Position(row, col);
-
-            Piece movingPiece = game.getBoard().getPiece(selectedPosition.getRow(), selectedPosition.getCol());
-            Piece movingPieceCopy = null;
-            if (movingPiece != null) {
-                movingPieceCopy = new Piece(movingPiece.getSymbol());
-            }
-
-            boolean wasCapture = Math.abs(target.getRow() - selectedPosition.getRow()) == 2;
-            boolean moved = game.move(selectedPosition, target);
-
-            if (moved) {
-                if (movingPieceCopy != null) {
-                    Position captured = wasCapture
-                        ? new Position((selectedPosition.getRow() + target.getRow()) / 2,
-                            (selectedPosition.getCol() + target.getCol()) / 2)
-                        : null;
-                    animateMove(selectedPosition, target, movingPieceCopy, captured,
-                        () -> finalizeMoveOutcome(target, wasCapture));
-                } else {
-                    finalizeMoveOutcome(target, wasCapture);
-                }
-            } else {
-                if (mustContinueCapture) {
-                    showMessage("You must continue capturing with the same piece");
-                } else if (game.playerMustCapture()) {
-                    showMessage("You must capture");
-                } else {
-                    showMessage("Invalid move");
-                }
-
-                drawBoard();
-            }
+            return;
         }
+        if (ownPiece && !mustContinueCapture) {
+            if (botGame.playerMustCapture() && !botGame.canCaptureAgain(clicked)) {
+                connectionStatusLabel.setText("Select a piece that can capture.");
+                return;
+            }
+            selectedPosition = clicked;
+            drawBoard();
+            return;
+        }
+        if (selectedPosition != null && piece == null) {
+            applyLocalMove(selectedPosition, clicked);
+        }
+    }
+
+    private void applyLocalMove(Position from, Position to) {
+        Piece source = botGame.getBoard().getPiece(from.getRow(), from.getCol());
+        Piece appearance = new Piece(source.getSymbol()); // Save appearance before promotion.
+        if (!botGame.move(from, to)) {
+            connectionStatusLabel.setText(mustContinueCapture ? "Continue capturing with the same piece."
+                    : botGame.playerMustCapture() ? "A capture is required." : "Invalid move. Choose another destination.");
+            return;
+        }
+        boolean capture = Math.abs(to.getRow() - from.getRow()) == 2;
+        Position captured = capture
+                ? new Position((from.getRow() + to.getRow()) / 2, (from.getCol() + to.getCol()) / 2)
+                : null;
+        selectedPosition = null;
+        connectionStatusLabel.setText("Move accepted.");
+        boardView.animateMove(from, to, appearance, captured, () -> finalizeMoveOutcome(to, capture));
     }
 
     private void handleOnlineClick(int row, int col) {
@@ -525,15 +362,15 @@ public class DamkaFX extends Application {
         Position to = new Position(row, col);
         selectedPosition = null;
         moveRequestPending = true;
-        moveBoardReceived = false;
         drawBoard();
         sendOnlineMove(from, to);
+        updateControls();
     }
 
     private boolean canInteractOnline() {
         return isOnlineMode && isInRoom && serverBoardSnapshot != null
                 && myPlayerColor != null && serverTurn == myPlayerColor.charAt(0)
-            && !moveRequestPending && !animationRunning && !onlineGameOver;
+                && !moveRequestPending && !leaveRequestPending && !boardView.isAnimating() && !gameOver;
     }
 
     private int getDepthFromDifficulty() {
@@ -548,18 +385,16 @@ public class DamkaFX extends Application {
     }
 
     private void updateControls() {
-        boolean connected = serverSocket != null && !serverSocket.isClosed();
         boolean canChooseRoom = !isConnecting && !roomRequestPending && !isInRoom;
         createRoomButton.setDisable(!canChooseRoom);
         joinRoomButton.setDisable(!canChooseRoom);
         roomCodeField.setDisable(!canChooseRoom);
-        botButton.setDisable(isConnecting || isInRoom);
-        difficultyBox.setDisable(isInRoom || !botMode);
-        resignButton.setDisable(!isInRoom || serverBoardSnapshot == null || onlineGameOver
-            || resignRequestPending || isConnecting || animationRunning);
-        leaveRoomButton.setDisable(!isInRoom || leaveRequestPending || isConnecting || animationRunning);
-        serverAddressField.setDisable(isConnecting || (connected && isInRoom));
-        serverPortField.setDisable(isConnecting || (connected && isInRoom));
+        botButton.setDisable(isConnecting || roomRequestPending || isInRoom);
+        difficultyBox.setDisable(isInRoom || isOnlineMode);
+        resignButton.setDisable(!isInRoom || serverBoardSnapshot == null || gameOver
+            || resignRequestPending || moveRequestPending || leaveRequestPending || isConnecting || boardView.isAnimating());
+        leaveRoomButton.setDisable(!isInRoom || leaveRequestPending || moveRequestPending
+                || resignRequestPending || isConnecting || boardView.isAnimating());
     }
 
     private void createRoom() {
@@ -584,130 +419,78 @@ public class DamkaFX extends Application {
             return;
         }
 
-        String host = serverAddressField.getText() == null ? "" : serverAddressField.getText().trim();
-        int port;
-        try {
-            port = Integer.parseInt(serverPortField.getText().trim());
-            if (host.isEmpty() || port < 1 || port > 65535) {
-                throw new NumberFormatException();
-            }
-        } catch (NumberFormatException exception) {
-            connectionStatusLabel.setText("Enter a server address and port from 1 to 65535.");
-            return;
-        }
+        // Cancel local animation callbacks before switching to the server board.
+        boardView.stopAnimation();
+        mustContinueCapture = false;
 
         isOnlineMode = true;
-        botMode = false;
         roomRequestPending = true;
-        onlineGameOver = false;
+        gameOver = false;
         serverBoardSnapshot = null;
         serverTurn = '\0';
         selectedPosition = null;
         moveRequestPending = false;
-        moveBoardReceived = false;
         incomingMessages.clear();
         turnLabel.setText("Waiting for the server");
         matchStatusLabel.setText("Connecting to match");
         drawBoard();
         updateControls();
 
-        boolean connected = serverSocket != null && !serverSocket.isClosed();
-        if (connected && host.equals(connectedHost) && port == connectedPort) {
+        boolean connected = activeRoomConnection != null && activeRoomConnection.isConnected();
+        if (connected) {
             connectionStatusLabel.setText("Sending room request...");
             sendNetworkCommand(request);
             return;
         }
 
-        if (connected) {
-            closeActiveSocket();
-        }
-        connectAndSend(host, port, request);
+        connectAndSend(request);
     }
 
-    private void connectAndSend(String host, int port, String request) {
-        final int connectionId = ++activeConnectionId;
+    private void connectAndSend(String request) {
         isConnecting = true;
-        connectionStatusLabel.setText("Connecting to " + host + ":" + port + "...");
+        connectionStatusLabel.setText("Connecting to server...");
         updateControls();
-
-        networkWriter.execute(() -> {
-            Socket socket = new Socket();
-            try {
-                socket.connect(new InetSocketAddress(host, port), 5000);
-                PrintWriter writer = new PrintWriter(
-                        new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
-                BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-                if (applicationClosing || connectionId != activeConnectionId) {
-                    closeSocketQuietly(socket);
-                    return;
-                }
-
-                serverSocket = socket;
-                serverWriter = writer;
-                connectedHost = host;
-                connectedPort = port;
-                writer.println(request);
-                if (writer.checkError()) {
-                    throw new IOException("Could not send the room request.");
-                }
-
-                Platform.runLater(() -> {
-                    if (connectionId != activeConnectionId) {
-                        closeSocketQuietly(socket);
-                        return;
-                    }
+        activeRoomConnection = new RoomConnection(serverHost, serverPort, new RoomConnection.Listener() {
+            @Override
+            public void onConnected(RoomConnection connection) {
+                onConnectionEvent(connection, () -> {
                     isConnecting = false;
+                    connectionStatusLabel.setText("Connected. Waiting for your room...");
                     updateControls();
-                    connectionStatusLabel.setText("Connected to " + host + ":" + port + ". Waiting for server...");
                 });
-                startReader(socket, reader, connectionId);
-            } catch (IOException exception) {
-                closeSocketQuietly(socket);
-                String detail = exception.getMessage() == null
-                        ? exception.getClass().getSimpleName() : exception.getMessage();
-                Platform.runLater(() -> handleConnectionFailure(connectionId, detail));
+            }
+
+            @Override
+            public void onMessage(RoomConnection connection, String message) {
+                onConnectionEvent(connection, () -> enqueueServerMessage(message));
+            }
+
+            @Override
+            public void onDisconnected(RoomConnection connection, String detail) {
+                onConnectionEvent(connection, () -> {
+                    closeConnection();
+                    resetOnlineRoom();
+                    connectionStatusLabel.setText("Connection ended: " + detail);
+                    updateControls();
+                });
             }
         });
+        activeRoomConnection.connect(request);
     }
 
-    private void startReader(Socket socket, BufferedReader reader, int connectionId) {
-        Thread readerThread = new Thread(() -> {
-            try {
-                String message;
-                while (!applicationClosing && (message = reader.readLine()) != null) {
-                    final String received = message;
-                    Platform.runLater(() -> enqueueServerMessage(received, connectionId));
-                }
-            } catch (IOException exception) {
-                if (!applicationClosing) {
-                    Platform.runLater(() -> handleConnectionFailure(connectionId, "Connection lost."));
-                }
-            } finally {
-                closeSocketQuietly(socket);
-                if (!applicationClosing) {
-                    Platform.runLater(() -> handleConnectionClosed(connectionId));
-                }
+    // Network callbacks do not touch controls. Old connections cannot change a new match.
+    private void onConnectionEvent(RoomConnection connection, Runnable action) {
+        Platform.runLater(() -> {
+            if (!applicationClosing && connection == activeRoomConnection) {
+                action.run();
             }
-        }, "damka-server-reader");
-        readerThread.setDaemon(true);
-        readerThread.start();
+        });
     }
 
     private void sendNetworkCommand(String command) {
-        final int connectionId = activeConnectionId;
-        final PrintWriter writer = serverWriter;
-        if (writer == null || serverSocket == null || serverSocket.isClosed()) {
-            handleConnectionFailure(connectionId, "No active server connection.");
-            return;
+        if (activeRoomConnection != null && activeRoomConnection.isConnected()) {
+            activeRoomConnection.send(command);
         }
-
-        networkWriter.execute(() -> {
-            writer.println(command);
-            if (writer.checkError()) {
-                Platform.runLater(() -> handleConnectionFailure(connectionId, "Could not send the request."));
-            }
-        });
     }
 
     private void sendOnlineMove(Position from, Position to) {
@@ -717,10 +500,10 @@ public class DamkaFX extends Application {
     }
 
     private void resignFromRoom() {
-        if (!isInRoom || onlineGameOver) {
+        if (!isInRoom || gameOver) {
             return;
         }
-        onlineGameOver = true;
+        gameOver = true;
         resignRequestPending = true;
         moveRequestPending = false;
         selectedPosition = null;
@@ -741,36 +524,28 @@ public class DamkaFX extends Application {
         updateControls();
     }
 
-    private void enqueueServerMessage(String message, int connectionId) {
-        if (connectionId != activeConnectionId) {
-            return;
-        }
+    // MOVE_APPLIED is followed by BOARD and TURN. Hold later messages during the animation.
+    private void enqueueServerMessage(String message) {
         incomingMessages.add(message);
-        processIncomingMessages(connectionId);
+        processIncomingMessages();
     }
 
-    private void processIncomingMessages(int connectionId) {
-        if (animationRunning || connectionId != activeConnectionId) {
-            return;
-        }
-        while (!incomingMessages.isEmpty() && !animationRunning) {
+    private void processIncomingMessages() {
+        while (!incomingMessages.isEmpty() && !boardView.isAnimating()) {
             String message = incomingMessages.remove();
             if (message.startsWith("MOVE_APPLIED ")) {
-                if (startOnlineMoveAnimation(message, connectionId)) {
-                    return;
-                }
+                startOnlineMoveAnimation(message);
             } else {
-                handleServerMessage(message, connectionId);
+                handleServerMessage(message);
             }
         }
     }
 
-    private boolean startOnlineMoveAnimation(String message, int connectionId) {
-        String[] fields = message.trim().split("\\s+");
+    private void startOnlineMoveAnimation(String message) {
+        String[] fields = message.split(" ");
         if (fields.length != 7 || serverBoardSnapshot == null) {
-            return false;
+            return;
         }
-
         try {
             int fromRow = Integer.parseInt(fields[1]);
             int fromCol = Integer.parseInt(fields[2]);
@@ -779,25 +554,21 @@ public class DamkaFX extends Application {
             int capturedRow = Integer.parseInt(fields[5]);
             int capturedCol = Integer.parseInt(fields[6]);
             if (!isBoardCoordinate(fromRow, fromCol) || !isBoardCoordinate(toRow, toCol)
+                    || (capturedRow == -1) != (capturedCol == -1)
                     || (capturedRow != -1 && !isBoardCoordinate(capturedRow, capturedCol))) {
-                return false;
+                return;
             }
-
             char symbol = serverBoardSnapshot.charAt(fromRow * 8 + fromCol);
-            if (symbol == '.' || (capturedRow == -1) != (capturedCol == -1)) {
-                return false;
+            if (symbol == '.') {
+                return;
             }
             Position captured = capturedRow == -1 ? null : new Position(capturedRow, capturedCol);
-            animationRunning = true;
             selectedPosition = null;
-            animateMove(new Position(fromRow, fromCol), new Position(toRow, toCol), new Piece(symbol), captured,
-                    () -> {
-                        animationRunning = false;
-                        processIncomingMessages(connectionId);
-                    });
-            return true;
+            boardView.animateMove(new Position(fromRow, fromCol), new Position(toRow, toCol),
+                    new Piece(symbol), captured, this::processIncomingMessages);
+            updateControls();
         } catch (NumberFormatException exception) {
-            return false;
+            connectionStatusLabel.setText("The server sent an invalid move.");
         }
     }
 
@@ -805,11 +576,7 @@ public class DamkaFX extends Application {
         return row >= 0 && row < 8 && col >= 0 && col < 8;
     }
 
-    private void handleServerMessage(String message, int connectionId) {
-        if (connectionId != activeConnectionId) {
-            return;
-        }
-
+    private void handleServerMessage(String message) {
         if (message.startsWith("BOARD ")) {
             String snapshot = message.substring("BOARD ".length());
             serverTurn = '\0';
@@ -818,26 +585,24 @@ public class DamkaFX extends Application {
                 return;
             }
             serverBoardSnapshot = snapshot;
-            if (moveRequestPending) {
-                moveBoardReceived = true;
-            }
             drawBoard();
         } else if (message.startsWith("TURN ")) {
             String turn = message.substring("TURN ".length()).trim();
             if ("X".equals(turn) || "O".equals(turn)) {
                 serverTurn = turn.charAt(0);
-                if (moveRequestPending && moveBoardReceived) {
+                if (moveRequestPending) {
                     moveRequestPending = false;
-                    moveBoardReceived = false;
                     connectionStatusLabel.setText("Move accepted.");
                 }
-                turnLabel.setText("Player " + serverTurn + " to move");
+                turnLabel.setText(myPlayerColor != null && serverTurn == myPlayerColor.charAt(0)
+                        ? "Your turn" : "Opponent’s turn");
             }
         } else if (message.startsWith("PLAYER ")) {
             String playerColor = message.substring("PLAYER ".length()).trim();
             if ("X".equals(playerColor) || "O".equals(playerColor)) {
                 myPlayerColor = playerColor;
-                playerColorLabel.setText("You are player " + playerColor);
+                playerColorLabel.setText("X".equals(playerColor)
+                        ? "You play forest · Player X" : "You play coral · Player O");
             }
         } else if (message.startsWith("ROOM_CREATED ")) {
             String code = message.substring("ROOM_CREATED ".length()).trim();
@@ -846,8 +611,8 @@ public class DamkaFX extends Application {
             isInRoom = true;
             roomRequestPending = false;
             matchStatusLabel.setText("Waiting for opponent");
+            turnLabel.setText("Waiting for opponent");
             connectionStatusLabel.setText("Room created. Share the code to invite a player.");
-            updateControls();
         } else if (message.startsWith("ROOM_JOINED ")) {
             String code = message.substring("ROOM_JOINED ".length()).trim();
             roomCodeField.setText(code);
@@ -856,79 +621,72 @@ public class DamkaFX extends Application {
             roomRequestPending = false;
             matchStatusLabel.setText("Joining opponent");
             connectionStatusLabel.setText("Joined room " + code + ".");
-            updateControls();
         } else if (message.startsWith("ROOM_READY ")) {
             isInRoom = true;
             roomRequestPending = false;
-            onlineGameOver = false;
+            gameOver = false;
             matchStatusLabel.setText("Online match");
             connectionStatusLabel.setText("Both players connected.");
-            updateControls();
         } else if (message.startsWith("GAME_OVER ")) {
             handleGameOver(message);
         } else if ("ROOM_LEFT".equals(message)) {
             resetOnlineRoom();
             connectionStatusLabel.setText("You left the room. Create or join another match.");
-            updateControls();
         } else if (message.startsWith("ROOM_CLOSED")) {
             resetOnlineRoom();
             connectionStatusLabel.setText("The room is closed.");
-            updateControls();
         } else if (message.startsWith("ERROR ")) {
             roomRequestPending = false;
             leaveRequestPending = false;
             if (resignRequestPending) {
                 resignRequestPending = false;
-                onlineGameOver = false;
+                gameOver = false;
             }
             if (moveRequestPending) {
                 moveRequestPending = false;
-                moveBoardReceived = false;
                 selectedPosition = null;
                 drawBoard();
             }
             connectionStatusLabel.setText(message.substring("ERROR ".length()));
-            updateControls();
         }
+        // TURN follows BOARD; controls reflect the complete state once both are processed.
+        updateControls();
     }
 
     private void handleGameOver(String message) {
         String[] fields = message.trim().split("\\s+");
         if (fields.length < 3) {
             connectionStatusLabel.setText("The server ended the match.");
-            onlineGameOver = true;
+            gameOver = true;
             return;
         }
 
         char winner = fields[1].charAt(0);
         String reason = fields[2];
-        onlineGameOver = true;
+        gameOver = true;
         isInRoom = false;
         resignRequestPending = false;
         moveRequestPending = false;
-        moveBoardReceived = false;
         selectedPosition = null;
         matchStatusLabel.setText("Player " + winner + " wins");
+        turnLabel.setText("Match finished");
+        drawBoard();
         if ("RESIGNATION".equals(reason)) {
             connectionStatusLabel.setText(myPlayerColor != null && winner == myPlayerColor.charAt(0)
                     ? "You win by resignation." : "You resigned. Player " + winner + " wins.");
-            isInRoom = false;
         } else if ("OPPONENT_LEFT".equals(reason)) {
             connectionStatusLabel.setText("Opponent left. You win.");
-            isInRoom = false;
         } else if ("OPPONENT_DISCONNECTED".equals(reason)) {
             connectionStatusLabel.setText("Opponent disconnected. You win.");
-            isInRoom = false;
         } else {
             connectionStatusLabel.setText("Player " + winner + " wins by game rules.");
         }
-        updateControls();
     }
 
     private void resetOnlineRoom() {
-        stopMovementAnimation();
+        boardView.stopAnimation();
         isInRoom = false;
-        onlineGameOver = false;
+        gameOver = false;
         roomRequestPending = false;
         leaveRequestPending = false;
         resignRequestPending = false;
@@ -936,263 +694,77 @@ public class DamkaFX extends Application {
         serverBoardSnapshot = null;
         serverTurn = '\0';
         moveRequestPending = false;
-        moveBoardReceived = false;
         selectedPosition = null;
         incomingMessages.clear();
-        roomCodeLabel.setText("Room code: not created");
-        playerColorLabel.setText("Choose a room");
+        roomCodeLabel.setText("No room yet");
+        playerColorLabel.setText("Your seat is waiting");
         turnLabel.setText("Waiting for a match");
-        matchStatusLabel.setText("No active match");
+        matchStatusLabel.setText("Ready when you are");
         drawBoard();
     }
 
-    private void handleConnectionFailure(int connectionId, String detail) {
-        if (connectionId != activeConnectionId) {
-            return;
-        }
+    private void closeConnection() {
+        RoomConnection connection = activeRoomConnection;
+        activeRoomConnection = null;
         isConnecting = false;
-        closeActiveSocket();
-        resetOnlineRoom();
-        connectionStatusLabel.setText("Connection failed: " + detail);
-        updateControls();
-    }
-
-    private void handleConnectionClosed(int connectionId) {
-        if (connectionId != activeConnectionId) {
-            return;
-        }
-        serverSocket = null;
-        serverWriter = null;
-        connectedHost = null;
-        connectedPort = 0;
-        isConnecting = false;
-        resetOnlineRoom();
-        connectionStatusLabel.setText("Server connection closed. You can reconnect by creating or joining a room.");
-        updateControls();
-    }
-
-    private void closeActiveSocket() {
-        Socket socket = serverSocket;
-        serverSocket = null;
-        serverWriter = null;
-        connectedHost = null;
-        connectedPort = 0;
-        activeConnectionId++;
-        closeSocketQuietly(socket);
-    }
-
-    private void closeSocketQuietly(Socket socket) {
-        if (socket != null && !socket.isClosed()) {
-            try {
-                socket.close();
-            } catch (IOException ignored) {
-                // Socket close is best-effort during cleanup.
-            }
+        if (connection != null) {
+            connection.close();
         }
     }
 
     @Override
     public void stop() {
         applicationClosing = true;
-        activeConnectionId++;
-        stopMovementAnimation();
-        closeActiveSocket();
-        if (networkWriter != null) {
-            networkWriter.shutdownNow();
-        }
-    }
-
-    private void animateMove(Position from, Position to, Piece movingPiece,
-                             Position capturedPosition, Runnable onFinished) {
-        Circle sourcePiece = pieceNodes[from.getRow()][from.getCol()];
-        Circle capturedPiece = capturedPosition == null
-                ? null : pieceNodes[capturedPosition.getRow()][capturedPosition.getCol()];
-        if (sourcePiece == null || boardCells[from.getRow()][from.getCol()] == null
-                || boardCells[to.getRow()][to.getCol()] == null) {
-            onFinished.run();
-            return;
-        }
-
-        animationPane.getChildren().clear();
-        sourcePiece.setVisible(false);
-        if (capturedPiece != null) {
-            capturedPiece.setOpacity(1);
-        }
-
-        Circle animatedCircle = new Circle(tileSize * 0.35);
-        if (movingPiece.getSymbol() == 'x' || movingPiece.getSymbol() == 'X') {
-            animatedCircle.setFill(Color.web("#172A27"));
-        } else {
-            animatedCircle.setFill(Color.web("#E76752"));
-        }
-        if (movingPiece.isKing()) {
-            animatedCircle.setStroke(Color.web("#F0B44D"));
-            animatedCircle.setStrokeWidth(Math.max(3, tileSize * 0.06));
-        }
-
-        animatedCircle.setMouseTransparent(true);
-        animationPane.getChildren().add(animatedCircle);
-
-        SimpleDoubleProperty progress = new SimpleDoubleProperty(0);
-        progress.addListener((observable, previous, current) ->
-                updateAnimatedPosition(animatedCircle, from, to, current.doubleValue()));
-        updateAnimatedPosition(animatedCircle, from, to, 0);
-
-        Timeline travel = new Timeline(
-                new KeyFrame(Duration.ZERO, new KeyValue(progress, 0)),
-                new KeyFrame(Duration.millis(320), new KeyValue(progress, 1)));
-        if (capturedPiece != null) {
-            FadeTransition captureFade = new FadeTransition(Duration.millis(240), capturedPiece);
-            captureFade.setDelay(Duration.millis(80));
-            captureFade.setFromValue(1);
-            captureFade.setToValue(0);
-            activeMovementAnimation = new ParallelTransition(travel, captureFade);
-        } else {
-            activeMovementAnimation = new ParallelTransition(travel);
-        }
-        animationRunning = true;
-        activeMovementAnimation.setOnFinished(event -> {
-            animationPane.getChildren().clear();
-            activeMovementAnimation = null;
-            animationRunning = false;
-            onFinished.run();
-        });
-        activeMovementAnimation.play();
-    }
-
-    private void updateAnimatedPosition(Circle animatedCircle, Position from, Position to, double progress) {
-        Point2D start = getCellCenterInOverlay(from);
-        Point2D end = getCellCenterInOverlay(to);
-        animatedCircle.setRadius(tileSize * 0.35);
-        animatedCircle.setCenterX(start.getX() + (end.getX() - start.getX()) * progress);
-        animatedCircle.setCenterY(start.getY() + (end.getY() - start.getY()) * progress);
-    }
-
-    private Point2D getCellCenterInOverlay(Position position) {
-        StackPane cell = boardCells[position.getRow()][position.getCol()];
-        Bounds sceneBounds = cell.localToScene(cell.getBoundsInLocal());
-        Point2D sceneCenter = new Point2D(
-                sceneBounds.getMinX() + sceneBounds.getWidth() / 2,
-                sceneBounds.getMinY() + sceneBounds.getHeight() / 2);
-        return animationPane.sceneToLocal(sceneCenter);
-    }
-
-    private void stopMovementAnimation() {
-        if (activeMovementAnimation != null) {
-            activeMovementAnimation.stop();
-            activeMovementAnimation = null;
-        }
-        animationPane.getChildren().clear();
-        animationRunning = false;
+        boardView.stopAnimation();
+        closeConnection();
     }
 
     private void finalizeMoveOutcome(Position target, boolean wasCapture) {
-        if (botMode && game.getCurrentPlayer().isBot() && wasCapture && game.canCaptureAgain(target)) {
-            botCaptureContinuation = target;
-        } else {
-            botCaptureContinuation = null;
-        }
-
-        String winner = game.getWinner();
+        String winner = botGame.getWinner();
 
         if (winner != null) {
             gameOver = true;
             selectedPosition = null;
             mustContinueCapture = false;
             drawBoard();
-            showMessage(winner);
+            matchStatusLabel.setText(winner);
+            turnLabel.setText("Match finished");
+            connectionStatusLabel.setText(winner);
             return;
         }
 
-        if (wasCapture && game.canCaptureAgain(target)) {
+        if (wasCapture && botGame.canCaptureAgain(target)) {
             selectedPosition = target;
             mustContinueCapture = true;
             drawBoard();
-            showMessage("You must continue capturing with the same piece");
+            connectionStatusLabel.setText(botGame.getCurrentPlayer().isBot()
+                    ? "BOT continues its capture." : "Continue capturing with the same piece.");
             maybePerformBotTurn();
             return;
         }
 
         selectedPosition = null;
         mustContinueCapture = false;
-        turnLabel.setText("Turn: " + game.getCurrentPlayer().getName());
+        turnLabel.setText(botGame.getCurrentPlayer().isBot() ? "BOT’s turn" : "Your turn");
         drawBoard();
         maybePerformBotTurn();
     }
 
     private void maybePerformBotTurn() {
-        if (botMode && !gameOver && !animationRunning && game.getCurrentPlayer().isBot()) {
+        if (!isOnlineMode && !gameOver && !boardView.isAnimating() && botGame.getCurrentPlayer().isBot()) {
             performBotMove();
         }
     }
 
     private void performBotMove() {
-        BotPlayer.MoveChoice botMove = botPlayer.findBestMove(
-            game, botDepth, game.getCurrentPlayer().getSymbol(), botCaptureContinuation);
-        if (botMove == null) {
-            String winner = game.getWinner();
-            if (winner == null) {
-                winner = "Bot has no valid move.";
-            }
+        BotPlayer.MoveChoice move = botPlayer.findBestMove(botGame, botDepth, 'o',
+                mustContinueCapture ? selectedPosition : null);
+        if (move == null) {
             gameOver = true;
-            showMessage(winner);
+            connectionStatusLabel.setText("BOT has no legal move.");
+            turnLabel.setText("Match finished");
             return;
         }
-
-        Piece movingPiece = game.getBoard().getPiece(botMove.getFrom().getRow(), botMove.getFrom().getCol());
-        Piece movingPieceCopy = null;
-        if (movingPiece != null) {
-            movingPieceCopy = new Piece(movingPiece.getSymbol());
-        }
-
-        boolean wasCapture = Math.abs(botMove.getTo().getRow() - botMove.getFrom().getRow()) == 2;
-        boolean moved = game.move(botMove.getFrom(), botMove.getTo());
-        selectedPosition = null;
-        mustContinueCapture = false;
-
-        if (moved) {
-            if (movingPieceCopy != null) {
-            Position captured = wasCapture
-                ? new Position((botMove.getFrom().getRow() + botMove.getTo().getRow()) / 2,
-                    (botMove.getFrom().getCol() + botMove.getTo().getCol()) / 2)
-                : null;
-            animateMove(botMove.getFrom(), botMove.getTo(), movingPieceCopy, captured,
-                () -> finalizeMoveOutcome(botMove.getTo(), wasCapture));
-            } else {
-                finalizeMoveOutcome(botMove.getTo(), wasCapture);
-            }
-        } else {
-            drawBoard();
-            gameOver = true;
-            showMessage("Bot failed to move.");
-        }
-    }
-
-    private void showMessage(String message) {
-        // Non-blocking toast notification
-        Platform.runLater(() -> {
-            Label toast = new Label(message);
-            toast.setStyle("-fx-background-radius: 8; -fx-background-color: rgba(0,0,0,0.75); -fx-text-fill: white; -fx-padding: 10 14; -fx-font-weight: bold;");
-            toast.setOpacity(0);
-            toast.setWrapText(true);
-            toast.setMaxWidth(400);
-            toast.setAlignment(Pos.CENTER);
-
-            toastPane.getChildren().add(toast);
-
-            FadeTransition fadeIn = new FadeTransition(Duration.millis(200), toast);
-            fadeIn.setFromValue(0);
-            fadeIn.setToValue(1);
-
-            PauseTransition stay = new PauseTransition(Duration.millis(1400));
-
-            FadeTransition fadeOut = new FadeTransition(Duration.millis(350), toast);
-            fadeOut.setFromValue(1);
-            fadeOut.setToValue(0);
-
-            SequentialTransition seq = new SequentialTransition(fadeIn, stay, fadeOut);
-            seq.setOnFinished(ev -> toastPane.getChildren().remove(toast));
-            seq.play();
-        });
+        applyLocalMove(move.getFrom(), move.getTo());
     }
 }

@@ -1,0 +1,260 @@
+/* The room controls and board share a calm paper-and-forest palette. */
+.app-root {
+    -fx-font-family: "Segoe UI";
+    -fx-font-size: 13px;
+    -fx-background-color: #f7f6f1;
+    -fx-text-fill: #233c32;
+}
+
+.content-scroll,
+.content-scroll > .viewport {
+    -fx-background-color: #f7f6f1;
+    -fx-background: #f7f6f1;
+    -fx-border-color: transparent;
+}
+
+.app-content {
+    -fx-background-color: #f7f6f1;
+    -fx-padding: 28 30 26 30;
+}
+
+.app-header {
+    -fx-padding: 0 0 28 0;
+}
+
+.app-title {
+    -fx-font-family: "Georgia";
+    -fx-font-size: 46px;
+    -fx-text-fill: #234b3c;
+}
+
+.app-subtitle {
+    -fx-font-size: 13px;
+    -fx-text-fill: #7d857b;
+}
+
+.header-badge {
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #527460;
+    -fx-background-color: #e9eee6;
+    -fx-background-radius: 18;
+    -fx-padding: 9 14;
+}
+
+.match-heading {
+    -fx-padding: 2 0 1 0;
+}
+
+.turn-label {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #234b3c;
+    -fx-background-color: #e8eee4;
+    -fx-background-radius: 8;
+    -fx-padding: 9 13;
+}
+
+.match-status {
+    -fx-font-size: 12px;
+    -fx-text-fill: #788477;
+}
+
+.board-hint {
+    -fx-font-size: 12px;
+    -fx-text-fill: #879083;
+    -fx-padding: 2 0 4 0;
+}
+
+.board-frame {
+    -fx-background-color: #2b483b;
+    -fx-padding: 12;
+    -fx-background-radius: 14;
+    -fx-effect: dropshadow(gaussian, rgba(36, 62, 43, 0.16), 22, 0.15, 0, 7);
+}
+
+.card {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 14;
+    -fx-border-color: #e3e8dd;
+    -fx-border-radius: 14;
+    -fx-padding: 18;
+}
+
+.practice-card {
+    -fx-background-color: #edf0e7;
+    -fx-border-color: #e1e7d9;
+}
+
+.section-title {
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #2e483b;
+}
+
+.section-description {
+    -fx-font-size: 12px;
+    -fx-text-fill: #7b8678;
+    -fx-line-spacing: 3;
+}
+
+.eyebrow-label {
+    -fx-font-size: 9px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #8b9587;
+    -fx-padding: 5 0 0 0;
+}
+
+.room-identity {
+    -fx-background-color: #f6f7f2;
+    -fx-background-radius: 8;
+    -fx-padding: 12;
+}
+
+.player-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #3f5b48;
+}
+
+.room-code-label {
+    -fx-font-family: "Consolas";
+    -fx-font-size: 13px;
+    -fx-text-fill: #7f8a77;
+}
+
+.status-line {
+    -fx-font-size: 12px;
+    -fx-text-fill: #71806c;
+    -fx-line-spacing: 3;
+}
+
+.inline-settings {
+    -fx-alignment: center-left;
+}
+
+.inline-settings > .label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #687a62;
+}
+
+.text-field,
+.combo-box-base {
+    -fx-background-color: #f8f9f5;
+    -fx-text-fill: #2d4939;
+    -fx-background-radius: 7;
+    -fx-border-color: #d9e1d3;
+    -fx-border-radius: 7;
+    -fx-padding: 8 10;
+    -fx-prompt-text-fill: #9ca696;
+}
+
+.text-field:focused,
+.combo-box-base:focused {
+    -fx-border-color: #82a38a;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: #3c5543;
+    -fx-background-color: transparent;
+    -fx-font-size: 12px;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #d9e1d3;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: #edf2e9;
+}
+
+.room-code-field {
+    -fx-font-family: "Consolas";
+    -fx-font-size: 13px;
+}
+
+.button {
+    -fx-background-color: #e7eee0;
+    -fx-text-fill: #3d6048;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 7;
+    -fx-padding: 10 14;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: #dce8d5;
+}
+
+.button:pressed {
+    -fx-background-color: #d2dfca;
+}
+
+.button:disabled {
+    -fx-opacity: 0.43;
+}
+
+.primary-button {
+    -fx-background-color: #315c44;
+    -fx-text-fill: #ffffff;
+    -fx-padding: 12 16;
+}
+
+.primary-button:hover {
+    -fx-background-color: #3e7254;
+}
+
+.primary-button:pressed {
+    -fx-background-color: #254936;
+}
+
+.secondary-button {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd7c4;
+    -fx-border-radius: 7;
+    -fx-text-fill: #496d4f;
+}
+
+.secondary-button:hover {
+    -fx-background-color: #f7faf3;
+}
+
+.quiet-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #74806d;
+    -fx-padding: 8 10;
+}
+
+.quiet-button:hover {
+    -fx-background-color: #f1f4ed;
+}
+
+.danger-button {
+    -fx-background-color: #f9ede7;
+    -fx-text-fill: #b5735c;
+    -fx-padding: 8 10;
+}
+
+.danger-button:hover {
+    -fx-background-color: #f3ded4;
+}
+
+.scroll-bar:vertical,
+.scroll-bar:horizontal {
+    -fx-background-color: transparent;
+    -fx-pref-width: 8;
+    -fx-pref-height: 8;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: #c6d0be;
+    -fx-background-radius: 4;
+}
+
+.scroll-bar .track,
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+}

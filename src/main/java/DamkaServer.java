@@ -24,6 +24,7 @@ public class DamkaServer {
         while (!server.isClosed()) {
             Socket client;
             try {
+                // accept() waits here until a client connects.
                 client = server.accept();
             } catch (SocketException exception) {
                 if (server.isClosed()) {
@@ -32,6 +33,7 @@ public class DamkaServer {
                 throw exception;
             }
 
+            // One reader per client; the listener can accept the next player.
             Thread worker = new Thread(() -> handleClient(client), "damka-client");
             worker.start();
         }
@@ -47,6 +49,7 @@ public class DamkaServer {
 
             String message;
             while ((message = input.readLine()) != null) {
+                // A finished room leaves the TCP connection available for a rematch.
                 if (room != null && room.isClosed()) {
                     room = null;
                 }
@@ -82,6 +85,7 @@ public class DamkaServer {
         } catch (IOException exception) {
             System.out.println("Connection closed: " + exception.getMessage());
         } finally {
+            // try-with-resources closes this socket; the room notifies its opponent.
             if (room != null) {
                 room.playerDisconnected(client);
             }
