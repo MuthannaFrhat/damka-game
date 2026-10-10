@@ -29,21 +29,24 @@ public class Room {
         this.firstOutput = firstOutput;
     }
 
-    public static synchronized Room createRoom(Socket player, PrintWriter output) {
-        String code;
-        do {
-            StringBuilder candidate = new StringBuilder();
-            for (int index = 0; index < 6; index++) {
-                candidate.append(CODE_CHARACTERS.charAt(random.nextInt(CODE_CHARACTERS.length())));
-            }
-            code = candidate.toString();
-        } while (rooms.containsKey(code));
+    public static Room createRoom(Socket player, PrintWriter output) {
+        Room room;
+        synchronized (Room.class) {
+            String code;
+            do {
+                StringBuilder candidate = new StringBuilder();
+                for (int index = 0; index < 6; index++) {
+                    candidate.append(CODE_CHARACTERS.charAt(random.nextInt(CODE_CHARACTERS.length())));
+                }
+                code = candidate.toString();
+            } while (rooms.containsKey(code));
 
-        Room room = new Room(code, player, output);
-        rooms.put(code, room);
-        // Announce the creator's identity before another client can join.
-        output.println("ROOM_CREATED " + code);
-        output.println("PLAYER X");
+            room = new Room(code, player, output);
+            rooms.put(code, room);
+            // Keep the initial messages inside the lock so a join cannot overtake PLAYER X.
+            output.println("ROOM_CREATED " + code);
+            output.println("PLAYER X");
+        }
         return room;
     }
 
