@@ -233,11 +233,11 @@ class RoomProtocolTest {
     void botStillProducesAndAppliesLegalMoves() {
         Game game = new Game(false, true);
         BotPlayer bot = new BotPlayer();
-        BotPlayer.MoveChoice xMove = bot.findBestMove(game, 1, 'x');
+        Game.Move xMove = bot.findBestMove(game, 1, 'x');
         assertNotNull(xMove);
         assertTrue(game.move(xMove.getFrom(), xMove.getTo()));
 
-        BotPlayer.MoveChoice oMove = bot.findBestMove(game, 1, 'o');
+        Game.Move oMove = bot.findBestMove(game, 1, 'o');
         assertNotNull(oMove);
         assertTrue(game.move(oMove.getFrom(), oMove.getTo()));
     }
@@ -264,8 +264,7 @@ class RoomProtocolTest {
         assertTrue(game.move(firstFrom, firstTo));
         assertEquals('x', game.getCurrentPlayer().getSymbol());
 
-        BotPlayer.MoveChoice continuation = new BotPlayer().findBestMove(
-                game, 1, 'x', firstTo);
+        Game.Move continuation = new BotPlayer().findBestMove(game, 1, 'x');
         assertNotNull(continuation);
         assertEquals(firstTo.getRow(), continuation.getFrom().getRow());
         assertEquals(firstTo.getCol(), continuation.getFrom().getCol());

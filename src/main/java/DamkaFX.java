@@ -37,7 +37,6 @@ public class DamkaFX extends Application {
     private HBox difficultyControls;
     private BotPlayer botPlayer;
     private int botDepth = 1;
-    private boolean mustContinueCapture = false;
     // Window controls. Visual styling lives in damka.css.
     private Label connectionStatusLabel;
     private HBox errorBanner;
@@ -300,7 +299,6 @@ public class DamkaFX extends Application {
         isOnlineMode = false;
         botGame = new Game(false, true);
         gameOver = false;
-        mustContinueCapture = false;
         botDepth = getDepthFromDifficulty();
         playerColorLabel.setText("You play forest · Player X");
         roomCodeLabel.setText("Local practice");
@@ -326,17 +324,22 @@ public class DamkaFX extends Application {
         Position clicked = new Position(row, col);
         Piece piece = botGame.getBoard().getPiece(row, col);
         boolean ownPiece = piece != null && piece.belongsToPlayer('x');
+        Position captureContinuation = botGame.getCaptureContinuationPosition();
 
         if (selectedPosition != null && selectedPosition.getRow() == row && selectedPosition.getCol() == col) {
-            if (!mustContinueCapture) {
+            if (captureContinuation == null) {
                 selectedPosition = null;
                 drawBoard();
+            } else {
+                showError("Continue capturing with the same piece.");
             }
             return;
         }
-        if (ownPiece && !mustContinueCapture) {
-            if (botGame.playerMustCapture() && !botGame.canCaptureAgain(clicked)) {
-                showError("Select a piece that can capture.");
+        if (ownPiece) {
+            if (!botGame.canSelectPiece(clicked)) {
+                showError(captureContinuation == null
+                        ? "Select a piece with a legal move."
+                        : "Continue capturing with the same piece.");
                 return;
             }
             selectedPosition = clicked;
@@ -349,20 +352,16 @@ public class DamkaFX extends Application {
     }
 
     private void applyLocalMove(Position from, Position to) {
-        Piece source = botGame.getBoard().getPiece(from.getRow(), from.getCol());
-        Piece appearance = new Piece(source.getSymbol()); // Save appearance before promotion.
         if (!botGame.move(from, to)) {
-            showError(mustContinueCapture ? "Continue capturing with the same piece."
-                    : botGame.playerMustCapture() ? "A capture is required." : "Invalid move.");
+            showError(botGame.getMoveError());
             return;
         }
-        boolean capture = Math.abs(to.getRow() - from.getRow()) == 2;
-        Position captured = capture
-                ? new Position((from.getRow() + to.getRow()) / 2, (from.getCol() + to.getCol()) / 2)
-                : null;
+        Game.Move move = botGame.getLastMove();
+        Piece appearance = new Piece(move.getMovingSymbol());
         selectedPosition = null;
         showStatus("Move accepted.");
-        boardView.animateMove(from, to, appearance, captured, () -> finalizeMoveOutcome(to, capture));
+        boardView.animateMove(move.getFrom(), move.getTo(), appearance,
+                move.getCapturedPosition(), this::finalizeMoveOutcome);
     }
 
     private void handleOnlineClick(int row, int col) {
@@ -490,7 +489,6 @@ public class DamkaFX extends Application {
 
         // Cancel local animation callbacks before switching to the server board.
         boardView.stopAnimation();
-        mustContinueCapture = false;
 
         isOnlineMode = true;
         roomRequestPending = true;
@@ -795,32 +793,26 @@ public class DamkaFX extends Application {
         closeConnection();
     }
 
-    private void finalizeMoveOutcome(Position target, boolean wasCapture) {
-        String winner = botGame.getWinner();
+    private void finalizeMoveOutcome() {
+        char winner = botGame.getWinnerSymbol();
 
-        if (winner != null) {
+        if (winner != '\0') {
             gameOver = true;
             selectedPosition = null;
-            mustContinueCapture = false;
             drawBoard();
-            matchStatusLabel.setText(winner);
+            String result = winner == 'X' ? "You win!" : "BOT wins.";
+            matchStatusLabel.setText(result);
             turnLabel.setText("Match finished");
-            showStatus(winner);
+            showStatus(result);
             return;
         }
 
-        if (wasCapture && botGame.canCaptureAgain(target)) {
-            selectedPosition = target;
-            mustContinueCapture = true;
-            drawBoard();
+        selectedPosition = botGame.getCaptureContinuationPosition();
+        if (selectedPosition != null) {
             showStatus(botGame.getCurrentPlayer().isBot()
                     ? "BOT continues its capture." : "Continue capturing with the same piece.");
-            maybePerformBotTurn();
-            return;
         }
 
-        selectedPosition = null;
-        mustContinueCapture = false;
         turnLabel.setText(botGame.getCurrentPlayer().isBot() ? "BOT’s turn" : "Your turn");
         drawBoard();
         maybePerformBotTurn();
@@ -833,12 +825,13 @@ public class DamkaFX extends Application {
     }
 
     private void performBotMove() {
-        BotPlayer.MoveChoice move = botPlayer.findBestMove(botGame, botDepth, 'o',
-                mustContinueCapture ? selectedPosition : null);
+        Game.Move move = botPlayer.findBestMove(botGame, botDepth, 'o');
         if (move == null) {
-            gameOver = true;
-            showStatus("BOT has no legal move.");
-            turnLabel.setText("Match finished");
+            if (botGame.getWinnerSymbol() != '\0') {
+                finalizeMoveOutcome();
+            } else {
+                showError("BOT could not choose a move.");
+            }
             return;
         }
         applyLocalMove(move.getFrom(), move.getTo());

@@ -1,4 +1,3 @@
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.HashMap;
@@ -20,7 +19,6 @@ public class Room {
     private final PrintWriter firstOutput;
     private Socket secondPlayer;
     private PrintWriter secondOutput;
-    private Position captureContinuationPosition;
     private boolean closed;
 
     private Room(String code, Socket firstPlayer, PrintWriter firstOutput) {
@@ -148,40 +146,22 @@ public class Room {
                 return;
             }
 
-            int fromRow = coordinates[0];
-            int fromCol = coordinates[1];
-            int toRow = coordinates[2];
-            int toCol = coordinates[3];
-            if (captureContinuationPosition != null
-                    && (captureContinuationPosition.getRow() != fromRow
-                    || captureContinuationPosition.getCol() != fromCol)) {
-                requesterOutput.println("ERROR Continue capturing with the same piece.");
-                return;
-            }
-
-            Position from = new Position(fromRow, fromCol);
-            Position to = new Position(toRow, toCol);
+            Position from = new Position(coordinates[0], coordinates[1]);
+            Position to = new Position(coordinates[2], coordinates[3]);
             if (!game.move(from, to)) {
-                requesterOutput.println("ERROR Invalid move.");
+                requesterOutput.println("ERROR " + game.getMoveError());
                 return;
             }
 
-            if (Math.abs(toRow - fromRow) == 2 && game.canCaptureAgain(to)) {
-                captureContinuationPosition = to;
-            } else {
-                captureContinuationPosition = null;
-            }
-
-            int capturedRow = Math.abs(toRow - fromRow) == 2 ? (fromRow + toRow) / 2 : -1;
-            int capturedCol = Math.abs(toCol - fromCol) == 2 ? (fromCol + toCol) / 2 : -1;
-            if (!broadcastMove(fromRow, fromCol, toRow, toCol, capturedRow, capturedCol)) {
+            // Game supplies the accepted move's facts; Room only sends them.
+            if (!broadcastMove(game.getLastMove())) {
                 disconnectedPlayer = firstOutput.checkError() ? firstPlayer : secondPlayer;
             } else {
-                String winner = game.getWinner();
-                if (winner != null) {
+                char winner = game.getWinnerSymbol();
+                if (winner != '\0') {
                     closed = true;
                     removeRoomAfterMove = true;
-                    broadcastGameOver(winnerSymbol(winner), "RULES");
+                    broadcastGameOver(winner, "RULES");
                 }
             }
         }
@@ -193,9 +173,14 @@ public class Room {
         }
     }
 
-    private boolean broadcastMove(int fromRow, int fromCol, int toRow, int toCol,
-                                  int capturedRow, int capturedCol) {
-        String moveMessage = "MOVE_APPLIED " + fromRow + " " + fromCol + " " + toRow + " " + toCol
+    private boolean broadcastMove(Game.Move move) {
+        Position from = move.getFrom();
+        Position to = move.getTo();
+        Position captured = move.getCapturedPosition();
+        int capturedRow = captured == null ? -1 : captured.getRow();
+        int capturedCol = captured == null ? -1 : captured.getCol();
+        String moveMessage = "MOVE_APPLIED " + from.getRow() + " " + from.getCol()
+                + " " + to.getRow() + " " + to.getCol()
                 + " " + capturedRow + " " + capturedCol;
         firstOutput.println(moveMessage);
         secondOutput.println(moveMessage);
@@ -294,10 +279,6 @@ public class Room {
         } else if (player == secondPlayer && secondOutput != null) {
             secondOutput.println("ERROR " + message);
         }
-    }
-
-    private char winnerSymbol(String winner) {
-        return winner.contains("Player X") ? 'X' : 'O';
     }
 
     private void removeFromRooms() {

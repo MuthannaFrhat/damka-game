@@ -1,19 +1,28 @@
 import java.util.ArrayList;
 import java.util.List;
 
+/** Owns move rules, turns, capture continuation, promotion, and the winner. */
 public class Game {
-    private Board board;
-    private Player playerX;
-    private Player playerO;
+    private final Board board;
+    private final Player playerX;
+    private final Player playerO;
     private Player currentPlayer;
+    private Position captureContinuationPosition;
+    private Move lastMove;
+    private String moveError;
 
+    /** A legal move also carries the facts needed to display its animation. */
     public static class Move {
         private final Position from;
         private final Position to;
+        private final Position capturedPosition;
+        private final char movingSymbol;
 
-        public Move(Position from, Position to) {
+        private Move(Position from, Position to, Position capturedPosition, char movingSymbol) {
             this.from = from;
             this.to = to;
+            this.capturedPosition = capturedPosition;
+            this.movingSymbol = movingSymbol;
         }
 
         public Position getFrom() {
@@ -22,6 +31,18 @@ public class Game {
 
         public Position getTo() {
             return to;
+        }
+
+        public Position getCapturedPosition() {
+            return capturedPosition;
+        }
+
+        public char getMovingSymbol() {
+            return movingSymbol;
+        }
+
+        public boolean isCapture() {
+            return capturedPosition != null;
         }
     }
 
@@ -41,6 +62,12 @@ public class Game {
         playerX = new Player(other.playerX.getSymbol(), other.playerX.getName(), other.playerX.isBot());
         playerO = new Player(other.playerO.getSymbol(), other.playerO.getName(), other.playerO.isBot());
         currentPlayer = other.currentPlayer == other.playerX ? playerX : playerO;
+        if (other.captureContinuationPosition != null) {
+            captureContinuationPosition = new Position(other.captureContinuationPosition.getRow(),
+                    other.captureContinuationPosition.getCol());
+        }
+        lastMove = other.lastMove;
+        moveError = other.moveError;
     }
 
     public Board getBoard() {
@@ -51,365 +78,164 @@ public class Game {
         return currentPlayer;
     }
 
+    public Position getCaptureContinuationPosition() {
+        return captureContinuationPosition;
+    }
+
+    public Move getLastMove() {
+        return lastMove;
+    }
+
+    public String getMoveError() {
+        return moveError;
+    }
+
     public boolean move(Position from, Position to) {
-
-        Piece piece = board.getPiece(from.getRow(), from.getCol());
-
-        if (piece == null) {
+        moveError = "Invalid move.";
+        if (from == null || to == null) {
+            return false;
+        }
+        if (captureContinuationPosition != null && !samePosition(from, captureContinuationPosition)) {
+            moveError = "Continue capturing with the same piece.";
             return false;
         }
 
-        if (!piece.belongsToPlayer(currentPlayer.getSymbol())) {
+        // Validate against the same legal moves used by selection, winner checks, and BOT search.
+        Move acceptedMove = null;
+        for (Move move : getValidMoves(currentPlayer.getSymbol())) {
+            if (samePosition(from, move.getFrom()) && samePosition(to, move.getTo())) {
+                acceptedMove = move;
+                break;
+            }
+        }
+        if (acceptedMove == null) {
             return false;
         }
 
-        if (!board.isEmpty(to.getRow(), to.getCol())) {
-            return false;
+        if (acceptedMove.isCapture()) {
+            board.removePiece(acceptedMove.getCapturedPosition());
         }
+        board.movePiece(from, to);
+        promoteIfNeeded(to);
+        lastMove = acceptedMove;
+        moveError = null;
 
-        int rowDiff = to.getRow() - from.getRow();
-        int colDiff = to.getCol() - from.getCol();
-
-        // Must move diagonally
-        if (Math.abs(rowDiff) != Math.abs(colDiff)) {
-            return false;
-        }
-
-        // Normal move: one step
-        if (Math.abs(rowDiff) == 1) {
-            if (playerMustCapture()) {
-                return false;
-            }
-
-            if (!piece.isKing()) {
-                if (piece.getSymbol() == 'x' && rowDiff != -1) {
-                    return false;
-                }
-
-                if (piece.getSymbol() == 'o' && rowDiff != 1) {
-                    return false;
-                }
-            }
-
-            board.movePiece(from, to);
-            switchTurn();
-            return true;
-        }
-
-        // Capture move: two steps
-        if (Math.abs(rowDiff) == 2) {
-            int middleRow = (from.getRow() + to.getRow()) / 2;
-            int middleCol = (from.getCol() + to.getCol()) / 2;
-
-            Piece middlePiece = board.getPiece(middleRow, middleCol);
-
-            if (middlePiece == null) {
-                return false;
-            }
-
-            if (!middlePiece.isOpponent(piece.getSymbol())) {
-                return false;
-            }
-
-            if (!piece.isKing()) {
-                if (piece.getSymbol() == 'x' && rowDiff != -2) {
-                    return false;
-                }
-
-                if (piece.getSymbol() == 'o' && rowDiff != 2) {
-                    return false;
-                }
-            }
-
-            board.removePiece(new Position(middleRow, middleCol));
-            board.movePiece(from, to);
-
-            // Only switch if no additional capture exists
-            if (!canCaptureAgain(to)) {
-                switchTurn();
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private void switchTurn() {
-        if (currentPlayer == playerX) {
-            currentPlayer = playerO;
+        if (acceptedMove.isCapture() && canCaptureAgain(to)) {
+            captureContinuationPosition = acceptedMove.getTo();
         } else {
-            currentPlayer = playerX;
+            captureContinuationPosition = null;
+            switchTurn();
         }
-    }
-
-    public boolean hasPieces(char player) {
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                Piece piece = board.getPiece(row, col);
-
-                if (piece != null && piece.belongsToPlayer(player)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    public String getWinner() {
-        if (!hasPieces('x') || !hasAnyValidMove('x')) {
-            return "Player O wins!";
-        }
-
-        if (!hasPieces('o') || !hasAnyValidMove('o')) {
-            return "Player X wins!";
-        }
-
-        return null;
+        return true;
     }
 
     public List<Move> getValidMoves(char player) {
-        List<Move> captureMoves = new ArrayList<>();
+        // Only the current player is restricted by an unfinished capture chain.
+        if (captureContinuationPosition != null
+                && Character.toLowerCase(player) == currentPlayer.getSymbol()) {
+            return getPieceMoves(captureContinuationPosition, true);
+        }
+
+        List<Move> captures = new ArrayList<>();
         List<Move> normalMoves = new ArrayList<>();
-
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {
                 Piece piece = board.getPiece(row, col);
-
-                if (piece == null || !piece.belongsToPlayer(player)) {
-                    continue;
-                }
-
-                int[] rowDirections = {-1, -1, 1, 1};
-                int[] colDirections = {-1, 1, -1, 1};
-
-                for (int i = 0; i < 4; i++) {
-                    int newRow = row + rowDirections[i];
-                    int newCol = col + colDirections[i];
-
-                    if (!board.isInsideBoard(newRow, newCol)) {
-                        continue;
-                    }
-
-                    if (!board.isEmpty(newRow, newCol)) {
-                        continue;
-                    }
-
-                    if (piece.isKing()
-                            || piece.getSymbol() == 'x' && newRow < row
-                            || piece.getSymbol() == 'o' && newRow > row) {
-                        normalMoves.add(new Move(new Position(row, col), new Position(newRow, newCol)));
-                    }
-                }
-
-                int[] captureRows = {-2, -2, 2, 2};
-                int[] captureCols = {-2, 2, -2, 2};
-
-                for (int i = 0; i < 4; i++) {
-                    int newRow = row + captureRows[i];
-                    int newCol = col + captureCols[i];
-
-                    int middleRow = row + captureRows[i] / 2;
-                    int middleCol = col + captureCols[i] / 2;
-
-                    if (!board.isInsideBoard(newRow, newCol)) {
-                        continue;
-                    }
-
-                    if (!board.isEmpty(newRow, newCol)) {
-                        continue;
-                    }
-
-                    Piece middlePiece = board.getPiece(middleRow, middleCol);
-
-                    if (middlePiece != null && middlePiece.isOpponent(player)) {
-                        if (piece.isKing()
-                                || piece.getSymbol() == 'x' && newRow < row
-                                || piece.getSymbol() == 'o' && newRow > row) {
-                            captureMoves.add(new Move(new Position(row, col), new Position(newRow, newCol)));
-                        }
-                    }
+                if (piece != null && piece.belongsToPlayer(player)) {
+                    Position from = new Position(row, col);
+                    captures.addAll(getPieceMoves(from, true));
+                    normalMoves.addAll(getPieceMoves(from, false));
                 }
             }
         }
-
-        return captureMoves.isEmpty() ? normalMoves : captureMoves;
+        // A capture anywhere prevents ordinary moves.
+        return captures.isEmpty() ? normalMoves : captures;
     }
 
-    public boolean playerMustCapture() {
-        char playerSymbol = currentPlayer.getSymbol();
-
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                Piece piece = board.getPiece(row, col);
-
-                // Skip empty squares or opponent pieces
-                if (piece == null || !piece.belongsToPlayer(playerSymbol)) {
-                    continue;
-                }
-
-                // All 4 diagonal jump directions
-                int[] rowDirections = {-2, -2, 2, 2};
-                int[] colDirections = {-2, 2, -2, 2};
-
-                for (int i = 0; i < 4; i++) {
-                    int newRow = row + rowDirections[i];
-                    int newCol = col + colDirections[i];
-
-                    int middleRow = row + rowDirections[i] / 2;
-                    int middleCol = col + colDirections[i] / 2;
-
-                    // Check board limits
-                    if (!board.isInsideBoard(newRow, newCol)) {
-                        continue;
-                    }
-
-                    // Landing square must be empty
-                    if (!board.isEmpty(newRow, newCol)) {
-                        continue;
-                    }
-
-                    Piece middlePiece = board.getPiece(middleRow, middleCol);
-
-                    // There must be opponent in middle
-                    if (middlePiece != null && middlePiece.isOpponent(playerSymbol)) {
-
-                        // Regular pieces only forward
-                        if (!piece.isKing()) {
-                            if (piece.getSymbol() == 'x' && newRow > row) {
-                                continue;
-                            }
-
-                            if (piece.getSymbol() == 'o' && newRow < row) {
-                                continue;
-                            }
-                        }
-
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    public boolean canCaptureAgain(Position position) {
-        Piece piece = board.getPiece(position.getRow(), position.getCol());
-
-        if (piece == null) {
+    public boolean canSelectPiece(Position position) {
+        if (position == null) {
             return false;
         }
-
-        int row = position.getRow();
-        int col = position.getCol();
-
-        // All 4 diagonal capture directions
-        int[] rowDirections = {-2, -2, 2, 2};
-        int[] colDirections = {-2, 2, -2, 2};
-
-        for (int i = 0; i < 4; i++) {
-            int newRow = row + rowDirections[i];
-            int newCol = col + colDirections[i];
-
-            int middleRow = row + rowDirections[i] / 2;
-            int middleCol = col + colDirections[i] / 2;
-
-            // Must stay inside board
-            if (!board.isInsideBoard(newRow, newCol)) {
-                continue;
-            }
-
-            // Landing square must be empty
-            if (!board.isEmpty(newRow, newCol)) {
-                continue;
-            }
-
-            Piece middlePiece = board.getPiece(middleRow, middleCol);
-
-            // Must capture opponent
-            if (middlePiece != null && middlePiece.isOpponent(piece.getSymbol())) {
-
-                // Regular pieces only forward
-                if (!piece.isKing()) {
-                    if (piece.getSymbol() == 'x' && newRow > row) {
-                        continue;
-                    }
-
-                    if (piece.getSymbol() == 'o' && newRow < row) {
-                        continue;
-                    }
-                }
-
+        for (Move move : getValidMoves(currentPlayer.getSymbol())) {
+            if (samePosition(position, move.getFrom())) {
                 return true;
             }
         }
-
         return false;
     }
-    public boolean hasAnyValidMove(char player) {
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                Piece piece = board.getPiece(row, col);
 
-                if (piece == null || !piece.belongsToPlayer(player)) {
+    public boolean playerMustCapture() {
+        List<Move> moves = getValidMoves(currentPlayer.getSymbol());
+        return !moves.isEmpty() && moves.get(0).isCapture();
+    }
+
+    public boolean canCaptureAgain(Position position) {
+        return !getPieceMoves(position, true).isEmpty();
+    }
+
+    public boolean hasAnyValidMove(char player) {
+        return !getValidMoves(player).isEmpty();
+    }
+
+    /** Uppercase player identity, or '\0' while there is no winner. */
+    public char getWinnerSymbol() {
+        if (!hasAnyValidMove('x')) {
+            return 'O';
+        }
+        if (!hasAnyValidMove('o')) {
+            return 'X';
+        }
+        return '\0';
+    }
+
+    // All direction, distance, empty-square, and opponent checks are defined here once.
+    private List<Move> getPieceMoves(Position from, boolean capture) {
+        List<Move> moves = new ArrayList<>();
+        Piece piece = board.getPiece(from.getRow(), from.getCol());
+        if (piece == null) {
+            return moves;
+        }
+        int distance = capture ? 2 : 1;
+        int forward = piece.belongsToPlayer('x') ? -1 : 1;
+        for (int rowDirection = -1; rowDirection <= 1; rowDirection += 2) {
+            if (!piece.isKing() && rowDirection != forward) {
+                continue;
+            }
+            for (int colDirection = -1; colDirection <= 1; colDirection += 2) {
+                int row = from.getRow() + rowDirection * distance;
+                int col = from.getCol() + colDirection * distance;
+                if (!board.isEmpty(row, col)) {
                     continue;
                 }
-
-                int[] rowDirections = {-1, -1, 1, 1};
-                int[] colDirections = {-1, 1, -1, 1};
-
-                for (int i = 0; i < 4; i++) {
-                    int newRow = row + rowDirections[i];
-                    int newCol = col + colDirections[i];
-
-                    if (!board.isInsideBoard(newRow, newCol)) {
+                Position captured = null;
+                if (capture) {
+                    int middleRow = from.getRow() + rowDirection;
+                    int middleCol = from.getCol() + colDirection;
+                    Piece opponent = board.getPiece(middleRow, middleCol);
+                    if (opponent == null || !opponent.isOpponent(piece.getSymbol())) {
                         continue;
                     }
-
-                    if (!board.isEmpty(newRow, newCol)) {
-                        continue;
-                    }
-
-                    if (piece.isKing()
-                            || piece.getSymbol() == 'x' && newRow < row
-                            || piece.getSymbol() == 'o' && newRow > row) {
-                        return true;
-                    }
+                    captured = new Position(middleRow, middleCol);
                 }
-
-                int[] captureRows = {-2, -2, 2, 2};
-                int[] captureCols = {-2, 2, -2, 2};
-
-                for (int i = 0; i < 4; i++) {
-                    int newRow = row + captureRows[i];
-                    int newCol = col + captureCols[i];
-
-                    int middleRow = row + captureRows[i] / 2;
-                    int middleCol = col + captureCols[i] / 2;
-
-                    if (!board.isInsideBoard(newRow, newCol)) {
-                        continue;
-                    }
-
-                    if (!board.isEmpty(newRow, newCol)) {
-                        continue;
-                    }
-
-                    Piece middlePiece = board.getPiece(middleRow, middleCol);
-
-                    if (middlePiece != null && middlePiece.isOpponent(player)) {
-                        if (piece.isKing()
-                                || piece.getSymbol() == 'x' && newRow < row
-                                || piece.getSymbol() == 'o' && newRow > row) {
-                            return true;
-                        }
-                    }
-                }
+                moves.add(new Move(from, new Position(row, col), captured, piece.getSymbol()));
             }
         }
+        return moves;
+    }
 
-        return false;
+    private void promoteIfNeeded(Position position) {
+        Piece piece = board.getPiece(position.getRow(), position.getCol());
+        if (piece.getSymbol() == 'x' && position.getRow() == 0
+                || piece.getSymbol() == 'o' && position.getRow() == 7) {
+            piece.makeKing();
+        }
+    }
+
+    private void switchTurn() {
+        currentPlayer = currentPlayer == playerX ? playerO : playerX;
+    }
+
+    private boolean samePosition(Position first, Position second) {
+        return first.getRow() == second.getRow() && first.getCol() == second.getCol();
     }
 }

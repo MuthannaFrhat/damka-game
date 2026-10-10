@@ -66,27 +66,9 @@ public class Board {
 
         board[to.getRow()][to.getCol()] = piece;
         board[from.getRow()][from.getCol()] = null;
-
-        promoteIfNeeded(to);
     }
 
     public void removePiece(Position position) {
         board[position.getRow()][position.getCol()] = null;
-    }
-
-    private void promoteIfNeeded(Position position) {
-        Piece piece = board[position.getRow()][position.getCol()];
-
-        if (piece == null) {
-            return;
-        }
-
-        if (piece.getSymbol() == 'x' && position.getRow() == 0) {
-            piece.makeKing();
-        }
-
-        if (piece.getSymbol() == 'o' && position.getRow() == 7) {
-            piece.makeKing();
-        }
     }
 }

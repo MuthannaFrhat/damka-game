@@ -1,47 +1,14 @@
-import java.util.ArrayList;
 import java.util.List;
 
 public class BotPlayer {
-    public static class MoveChoice {
-        private final Position from;
-        private final Position to;
-
-        public MoveChoice(Position from, Position to) {
-            this.from = from;
-            this.to = to;
-        }
-
-        public Position getFrom() {
-            return from;
-        }
-
-        public Position getTo() {
-            return to;
-        }
-    }
-
-    public MoveChoice findBestMove(Game game, int depth, char botSymbol) {
-        return findBestMove(game, depth, botSymbol, null);
-    }
-
-    public MoveChoice findBestMove(Game game, int depth, char botSymbol, Position forcedFrom) {
+    public Game.Move findBestMove(Game game, int depth, char botSymbol) {
         List<Game.Move> moves = game.getValidMoves(botSymbol);
-        if (forcedFrom != null) {
-            List<Game.Move> continuationMoves = new ArrayList<>();
-            for (Game.Move move : moves) {
-                if (move.getFrom().getRow() == forcedFrom.getRow()
-                        && move.getFrom().getCol() == forcedFrom.getCol()) {
-                    continuationMoves.add(move);
-                }
-            }
-            moves = continuationMoves;
-        }
         if (moves.isEmpty()) {
             return null;
         }
 
         int bestScore = Integer.MIN_VALUE;
-        MoveChoice bestMove = null;
+        Game.Move bestMove = null;
 
         for (Game.Move move : moves) {
             Game simulated = new Game(game);
@@ -50,7 +17,7 @@ public class BotPlayer {
 
             if (score > bestScore) {
                 bestScore = score;
-                bestMove = new MoveChoice(move.getFrom(), move.getTo());
+                bestMove = move;
             }
         }
 
@@ -58,8 +25,8 @@ public class BotPlayer {
     }
 
     private int minimax(Game game, int depth, char botSymbol, int alpha, int beta) {
-        String winner = game.getWinner();
-        if (winner != null) {
+        char winner = game.getWinnerSymbol();
+        if (winner != '\0') {
             return evaluateTerminal(winner, botSymbol);
         }
 
@@ -103,8 +70,8 @@ public class BotPlayer {
         }
     }
 
-    private int evaluateTerminal(String winner, char botSymbol) {
-        if (winner.contains("Player " + Character.toUpperCase(botSymbol))) {
+    private int evaluateTerminal(char winner, char botSymbol) {
+        if (winner == Character.toUpperCase(botSymbol)) {
             return 10000;
         }
         return -10000;
