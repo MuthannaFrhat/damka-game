@@ -64,39 +64,34 @@ public class Room {
             output.println("ERROR Room not found.");
             return null;
         }
-        if (!room.join(player, output)) {
-            return null;
-        }
-        return room;
-    }
 
-    private boolean join(Socket player, PrintWriter output) {
         Socket disconnectedPlayer = null;
-        synchronized (this) {
-            if (closed) {
+        // Only one joining player can claim this room's remaining seat.
+        synchronized (room) {
+            if (room.closed) {
                 output.println("ERROR Room not found.");
-                return false;
+                return null;
             }
-            if (secondPlayer != null) {
+            if (room.secondPlayer != null) {
                 output.println("ERROR Room is full.");
-                return false;
+                return null;
             }
 
-            secondPlayer = player;
-            secondOutput = output;
+            room.secondPlayer = player;
+            room.secondOutput = output;
             output.println("ROOM_JOINED " + code);
             output.println("PLAYER O");
-            firstOutput.println("ROOM_READY " + code);
+            room.firstOutput.println("ROOM_READY " + code);
             output.println("ROOM_READY " + code);
-            if (!broadcastState()) {
-                disconnectedPlayer = firstOutput.checkError() ? firstPlayer : secondPlayer;
+            if (!room.broadcastState()) {
+                disconnectedPlayer = room.firstOutput.checkError() ? room.firstPlayer : room.secondPlayer;
             }
         }
         // Release the room lock before removing the entry from the shared map.
         if (disconnectedPlayer != null) {
-            playerDisconnected(disconnectedPlayer);
+            room.playerDisconnected(disconnectedPlayer);
         }
-        return true;
+        return room;
     }
 
     public synchronized boolean isClosed() {
