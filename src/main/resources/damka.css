@@ -6,6 +6,43 @@
     -fx-text-fill: #233c32;
 }
 
+.onboarding-root {
+    -fx-padding: 24;
+}
+
+.account-card {
+    -fx-padding: 24;
+    -fx-effect: dropshadow(gaussian, rgba(36, 62, 43, 0.12), 22, 0.1, 0, 5);
+}
+
+.profile-dialog {
+    -fx-font-family: "Segoe UI";
+    -fx-font-size: 13px;
+    -fx-background-color: #f7f6f1;
+}
+
+.account-tabs .toggle-button {
+    -fx-background-color: #e9eee6;
+    -fx-text-fill: #527460;
+    -fx-background-radius: 7;
+    -fx-padding: 9 12;
+    -fx-cursor: hand;
+}
+
+.account-tabs .toggle-button:selected {
+    -fx-background-color: #315c44;
+    -fx-text-fill: #ffffff;
+}
+
+.account-card > .label,
+.account-card > .vbox > .label {
+    -fx-text-fill: #527460;
+}
+
+.account-card .error-message {
+    -fx-text-fill: #8e3026;
+}
+
 .content-scroll,
 .content-scroll > .viewport {
     -fx-background-color: #f7f6f1;
