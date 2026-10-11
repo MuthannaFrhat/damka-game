@@ -40,3 +40,10 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Local SQLite data ###
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal

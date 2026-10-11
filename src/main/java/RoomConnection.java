@@ -42,7 +42,7 @@ public final class RoomConnection implements AutoCloseable {
     }
 
     /** Call once from the owner thread: connect, send the request, then listen. */
-    public void connect(String roomRequest) {
+    public void connect(String initialRequest) {
         if (started) {
             throw new IllegalStateException("This connection has already been started.");
         }
@@ -50,12 +50,12 @@ public final class RoomConnection implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        Thread reader = new Thread(() -> readMessages(roomRequest), "damka-server-reader");
+        Thread reader = new Thread(() -> readMessages(initialRequest), "damka-server-reader");
         reader.setDaemon(true);
         reader.start();
     }
 
-    private void readMessages(String roomRequest) {
+    private void readMessages(String initialRequest) {
         String detail = "The server closed the connection.";
         try {
             socket.connect(new InetSocketAddress(host, port), 5000);
@@ -63,9 +63,9 @@ public final class RoomConnection implements AutoCloseable {
                     socket.getInputStream(), StandardCharsets.UTF_8));
             output = new PrintWriter(new OutputStreamWriter(
                     socket.getOutputStream(), StandardCharsets.UTF_8), true);
-            output.println(roomRequest);
+            output.println(initialRequest);
             if (output.checkError()) {
-                throw new IOException("Could not send the room request.");
+                throw new IOException("Could not send the initial request.");
             }
             if (!closed.get()) {
                 listener.onConnected(this);
