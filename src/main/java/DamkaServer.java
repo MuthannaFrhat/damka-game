@@ -12,7 +12,10 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.SQLException;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Base64;
+import java.util.UUID;
 
 public class DamkaServer {
     public static void main(String[] args) throws IOException, SQLException {
@@ -71,11 +74,15 @@ public class DamkaServer {
                     }
                 } else if (username == null) {
                     output.println("ERROR Log in first.");
+                } else if ("PROFILE_REQUEST".equals(message)) {
+                    sendProfile(username, profiles, output);
+                } else if ("BOT_RESULT".equals(message) || message.startsWith("BOT_RESULT ")) {
+                    saveBotResult(message, username, profiles, output);
                 } else if (room == null) {
                     if ("CREATE_ROOM".equals(message)) {
-                        room = Room.createRoom(connection, output);
+                        room = Room.createRoom(connection, output, username, profiles);
                     } else if ("JOIN_ROOM".equals(message) || message.startsWith("JOIN_ROOM ")) {
-                        room = Room.joinRoom(message, connection, output);
+                        room = Room.joinRoom(message, connection, output, username);
                     } else if (message.startsWith("MOVE")) {
                         output.println("ERROR You are not in a room.");
                     } else if ("RESIGN".equals(message) || "LEAVE_ROOM".equals(message)) {
@@ -158,4 +165,45 @@ public class DamkaServer {
         }
     }
 
+    private static void sendProfile(String username, ProfileDatabase profiles, PrintWriter output) {
+        try {
+            output.println("PROFILE " + profiles.getProfile(username).encode());
+        } catch (SQLException exception) {
+            output.println("PROFILE_ERROR Could not load your profile. Please try again.");
+        }
+    }
+
+    /** BOT results are claimed locally; the account always comes from the authenticated socket. */
+    private static void saveBotResult(String message, String username,
+                                      ProfileDatabase profiles, PrintWriter output) {
+        String[] fields = message.trim().split("\\s+");
+        String id = fields.length > 1 ? fields[1] : "-";
+        if (fields.length != 5) {
+            output.println("BOT_ERROR " + id + " Expected id, WIN/LOSS, difficulty, and completion time.");
+            return;
+        }
+        int difficulty;
+        Instant finishedAt;
+        try {
+            if (!UUID.fromString(id).toString().equals(id)) {
+                throw new IllegalArgumentException();
+            }
+            difficulty = Integer.parseInt(fields[3]);
+            finishedAt = Instant.parse(fields[4]);
+        } catch (IllegalArgumentException | DateTimeParseException exception) {
+            output.println("BOT_ERROR " + id + " Invalid result id, difficulty, or completion time.");
+            return;
+        }
+        if (!("WIN".equals(fields[2]) || "LOSS".equals(fields[2]))
+                || difficulty < 1 || difficulty > 3 || finishedAt.isAfter(Instant.now().plusSeconds(300))) {
+            output.println("BOT_ERROR " + id + " Invalid result, difficulty, or future completion time.");
+            return;
+        }
+        try {
+            profiles.recordBotGame(id, username, fields[2], difficulty, fields[4]);
+            output.println("BOT_SAVED " + id);
+        } catch (SQLException exception) {
+            output.println("BOT_ERROR " + id + " Could not save this result. Check it and retry.");
+        }
+    }
 }

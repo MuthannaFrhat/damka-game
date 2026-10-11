@@ -1,7 +1,10 @@
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.sql.SQLException;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Random;
+import java.util.UUID;
 
 /**
  * One room owns one server-side game and the two players' connections.
@@ -17,17 +20,25 @@ public class Room {
     private final String code;
     private final Socket firstPlayer;
     private final PrintWriter firstOutput;
+    private final String firstUsername;
+    private final ProfileDatabase profiles;
     private Socket secondPlayer;
     private PrintWriter secondOutput;
+    private String secondUsername;
+    private String matchId;
+    private boolean resultSaveFailed;
     private boolean closed;
 
-    private Room(String code, Socket firstPlayer, PrintWriter firstOutput) {
+    private Room(String code, Socket firstPlayer, PrintWriter firstOutput,
+                 String firstUsername, ProfileDatabase profiles) {
         this.code = code;
         this.firstPlayer = firstPlayer;
         this.firstOutput = firstOutput;
+        this.firstUsername = firstUsername;
+        this.profiles = profiles;
     }
 
-    public static Room createRoom(Socket player, PrintWriter output) {
+    public static Room createRoom(Socket player, PrintWriter output, String username, ProfileDatabase profiles) {
         Room room;
         synchronized (Room.class) {
             String code;
@@ -39,7 +50,7 @@ public class Room {
                 code = candidate.toString();
             } while (rooms.containsKey(code));
 
-            room = new Room(code, player, output);
+            room = new Room(code, player, output, username, profiles);
             rooms.put(code, room);
             // Keep the initial messages inside the lock so a join cannot overtake PLAYER X.
             output.println("ROOM_CREATED " + code);
@@ -48,7 +59,7 @@ public class Room {
         return room;
     }
 
-    public static Room joinRoom(String message, Socket player, PrintWriter output) {
+    public static Room joinRoom(String message, Socket player, PrintWriter output, String username) {
         if (!message.matches("JOIN_ROOM [A-Z0-9]{6}")) {
             output.println("ERROR Invalid room code.");
             return null;
@@ -74,9 +85,15 @@ public class Room {
                 output.println("ERROR Room is full.");
                 return null;
             }
+            if (room.firstUsername.equals(username)) {
+                output.println("ERROR The same account cannot occupy both seats.");
+                return null;
+            }
 
             room.secondPlayer = player;
             room.secondOutput = output;
+            room.secondUsername = username;
+            room.matchId = UUID.randomUUID().toString();
             output.println("ROOM_JOINED " + code);
             output.println("PLAYER O");
             room.firstOutput.println("ROOM_READY " + code);
@@ -154,15 +171,16 @@ public class Room {
             }
 
             // Game supplies the accepted move's facts; Room only sends them.
-            if (!broadcastMove(game.getLastMove())) {
+            char winner = game.getWinnerSymbol();
+            boolean delivered = broadcastMove(game.getLastMove());
+            // A rules winner stays the winner even if a final message cannot be delivered.
+            if (winner != '\0') {
+                closed = true;
+                removeRoomAfterMove = true;
+                recordResult(winner, "RULES");
+                broadcastGameOver(winner, "RULES");
+            } else if (!delivered) {
                 disconnectedPlayer = firstOutput.checkError() ? firstPlayer : secondPlayer;
-            } else {
-                char winner = game.getWinnerSymbol();
-                if (winner != '\0') {
-                    closed = true;
-                    removeRoomAfterMove = true;
-                    broadcastGameOver(winner, "RULES");
-                }
             }
         }
 
@@ -223,8 +241,9 @@ public class Room {
             } else {
                 return false;
             }
-            broadcastGameOver(winner, "RESIGNATION");
             closed = true;
+            recordResult(winner, "RESIGNATION");
+            broadcastGameOver(winner, "RESIGNATION");
         }
         removeFromRooms();
         return true;
@@ -236,17 +255,19 @@ public class Room {
                 sendError(player, "You are not in an active room.");
                 return;
             }
-
+            closed = true;
             if (player == firstPlayer) {
                 firstOutput.println("ROOM_LEFT");
                 if (secondOutput != null) {
+                    recordResult('O', "OPPONENT_LEFT");
                     secondOutput.println("GAME_OVER O OPPONENT_LEFT");
                 }
             } else {
                 secondOutput.println("ROOM_LEFT");
+                recordResult('X', "OPPONENT_LEFT");
                 firstOutput.println("GAME_OVER X OPPONENT_LEFT");
             }
-            closed = true;
+            notifyResultSaveFailure();
         }
         removeFromRooms();
     }
@@ -259,10 +280,26 @@ public class Room {
             closed = true;
             // Before the second player joins there is nobody to notify.
             if (secondPlayer != null) {
-                broadcastGameOver(player == firstPlayer ? 'O' : 'X', "OPPONENT_DISCONNECTED");
+                char winner = player == firstPlayer ? 'O' : 'X';
+                recordResult(winner, "OPPONENT_DISCONNECTED");
+                broadcastGameOver(winner, "OPPONENT_DISCONNECTED");
             }
         }
         removeFromRooms();
+    }
+
+    /** Called once while closing a started match under this room's lock. */
+    private void recordResult(char winner, String reason) {
+        if (matchId == null) {
+            return; // A waiting room is not a completed match.
+        }
+        try {
+            profiles.recordOnlineGame(matchId, firstUsername, secondUsername,
+                    Character.toUpperCase(winner), reason, Instant.now().toString());
+        } catch (SQLException exception) {
+            resultSaveFailed = true;
+            System.err.println("Could not save the completed match result.");
+        }
     }
 
     private void broadcastGameOver(char winner, String reason) {
@@ -270,6 +307,17 @@ public class Room {
         firstOutput.println(message);
         if (secondOutput != null) {
             secondOutput.println(message);
+        }
+        notifyResultSaveFailure();
+    }
+
+    private void notifyResultSaveFailure() {
+        if (resultSaveFailed) {
+            String error = "RESULT_ERROR The match ended, but its result could not be saved.";
+            firstOutput.println(error);
+            if (secondOutput != null) {
+                secondOutput.println(error);
+            }
         }
     }
 
