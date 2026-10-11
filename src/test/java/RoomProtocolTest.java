@@ -1,34 +1,53 @@
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.Base64;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RoomProtocolTest {
+    @TempDir
+    Path temporaryDirectory;
     private ServerSocket listener;
     private Thread serverThread;
     private int port;
+    private Path databasePath;
+    private Set<Thread> existingThreads;
+    private final AtomicInteger nextUsername = new AtomicInteger();
 
     @BeforeEach
-    void startServer() throws IOException {
+    void startServer() throws Exception {
+        existingThreads = Thread.getAllStackTraces().keySet();
+        databasePath = temporaryDirectory.resolve("profiles.db");
+        ProfileDatabase database = new ProfileDatabase(databasePath);
         listener = new ServerSocket(0);
         port = listener.getLocalPort();
         serverThread = new Thread(() -> {
             try {
-                DamkaServer.serve(listener);
+                DamkaServer.serve(listener, database);
             } catch (IOException exception) {
                 if (!listener.isClosed()) {
                     throw new RuntimeException(exception);
@@ -43,6 +62,14 @@ class RoomProtocolTest {
     void stopServer() throws Exception {
         listener.close();
         serverThread.join(2000);
+        assertFalse(serverThread.isAlive());
+        // Client disconnects can still be saving SQLite results after the listener stops.
+        for (Thread thread : Thread.getAllStackTraces().keySet()) {
+            if ("damka-client".equals(thread.getName()) && !existingThreads.contains(thread)) {
+                thread.join(5000);
+                assertFalse(thread.isAlive(), "Client worker did not finish cleanup.");
+            }
+        }
     }
 
     @Test
@@ -178,10 +205,75 @@ class RoomProtocolTest {
                 assertEquals("TURN O", o.read());
                 assertEquals("GAME_OVER X RULES", x.read());
                 assertEquals("GAME_OVER X RULES", o.read());
+                assertEquals(1, resultCount("RULES"));
 
                 o.send("MOVE 7 7 6 6");
                 assertEquals("ERROR You are not in a room.", o.read());
+                assertEquals(1, resultCount("RULES"));
             }
+        }
+    }
+
+    @Test
+    void naturalWinnerIsRecordedEvenWhenTheFinalMessageCannotBeDelivered() throws Exception {
+        try (Peer x = connect(); Peer o = connect()) {
+            x.send("CREATE_ROOM");
+            String code = x.read().substring("ROOM_CREATED ".length());
+            assertEquals("PLAYER X", x.read());
+            installPromotionPosition(code);
+            o.send("JOIN_ROOM " + code);
+            assertEquals("ROOM_JOINED " + code, o.read());
+            assertEquals("PLAYER O", o.read());
+            assertEquals("ROOM_READY " + code, o.read());
+            assertEquals("ROOM_READY " + code, x.read());
+            assertEquals(x.read(), o.read());
+            assertEquals("TURN X", x.read());
+            assertEquals("TURN X", o.read());
+
+            // Simulate a write failure exactly when X's final move is broadcast.
+            Field outputField = Room.class.getDeclaredField("firstOutput");
+            outputField.setAccessible(true);
+            Field roomsField = Room.class.getDeclaredField("rooms");
+            roomsField.setAccessible(true);
+            Room room;
+            synchronized (Room.class) {
+                room = (Room) ((Map<?, ?>) roomsField.get(null)).get(code);
+            }
+            synchronized (room) {
+                outputField.set(room, new PrintWriter(new StringWriter()) {
+                    @Override
+                    public boolean checkError() {
+                        return true;
+                    }
+                });
+            }
+            x.send("MOVE 1 0 0 1");
+            assertTrue(o.read().startsWith("MOVE_APPLIED "));
+            assertTrue(o.read().startsWith("BOARD "));
+            assertEquals("TURN O", o.read());
+            assertEquals("GAME_OVER X RULES", o.read());
+            assertEquals(1, resultCount("RULES"));
+            assertEquals(0, resultCount("OPPONENT_DISCONNECTED"));
+        }
+    }
+
+    @Test
+    void databaseFailureIsReportedAfterGameOverAndStillAllowsARematch() throws Exception {
+        try (Match match = openMatch()) {
+            try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databasePath);
+                 PreparedStatement statement = connection.prepareStatement("DROP TABLE game_results")) {
+                statement.executeUpdate();
+            }
+            match.x.send("RESIGN");
+            assertEquals("GAME_OVER O RESIGNATION", match.x.read());
+            assertEquals("GAME_OVER O RESIGNATION", match.o.read());
+            assertEquals("RESULT_ERROR The match ended, but its result could not be saved.", match.x.read());
+            assertEquals("RESULT_ERROR The match ended, but its result could not be saved.", match.o.read());
+            match.x.send("MOVE 5 0 4 1");
+            assertEquals("ERROR You are not in a room.", match.x.read());
+            match.x.send("CREATE_ROOM");
+            assertTrue(match.x.read().startsWith("ROOM_CREATED "));
+            assertEquals("PLAYER X", match.x.read());
         }
     }
 
@@ -191,6 +283,7 @@ class RoomProtocolTest {
             first.x.send("RESIGN");
             assertEquals("GAME_OVER O RESIGNATION", first.x.read());
             assertEquals("GAME_OVER O RESIGNATION", first.o.read());
+            assertEquals(1, resultCount("RESIGNATION"));
 
             first.x.send("CREATE_ROOM");
             String nextRoom = first.x.read();
@@ -209,11 +302,13 @@ class RoomProtocolTest {
             first.o.send("LEAVE_ROOM");
             assertEquals("ROOM_LEFT", first.o.read());
             assertEquals("GAME_OVER X OPPONENT_LEFT", first.x.read());
+            assertEquals(1, resultCount("OPPONENT_LEFT"));
 
             first.x.send("CREATE_ROOM");
             String thirdRoom = first.x.read();
             assertTrue(thirdRoom.startsWith("ROOM_CREATED "));
             assertEquals("PLAYER X", first.x.read());
+            assertEquals(2, resultCount(null));
         }
     }
 
@@ -222,6 +317,7 @@ class RoomProtocolTest {
         try (Match match = openMatch()) {
             match.o.close();
             assertEquals("GAME_OVER X OPPONENT_DISCONNECTED", match.x.read());
+            assertEquals(1, resultCount("OPPONENT_DISCONNECTED"));
 
             match.x.send("CREATE_ROOM");
             assertTrue(match.x.read().startsWith("ROOM_CREATED "));
@@ -318,7 +414,33 @@ class RoomProtocolTest {
     }
 
     private Peer connect() throws IOException {
-        return new Peer(port);
+        Peer peer = new Peer(port);
+        String username = "testplayer" + nextUsername.incrementAndGet();
+        try {
+            String encodedPassword = Base64.getEncoder().encodeToString(
+                    "password123".getBytes(StandardCharsets.UTF_8));
+            peer.send("SIGNUP " + username + " " + encodedPassword);
+            assertEquals("AUTH_OK " + username, peer.read());
+            return peer;
+        } catch (IOException | AssertionError exception) {
+            peer.close();
+            throw exception;
+        }
+    }
+
+    private int resultCount(String reason) throws Exception {
+        String sql = "SELECT COUNT(*) FROM game_results WHERE mode = 'ONLINE'"
+                + (reason == null ? "" : " AND reason = ?");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databasePath);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            if (reason != null) {
+                statement.setString(1, reason);
+            }
+            try (ResultSet rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                return rows.getInt(1);
+            }
+        }
     }
 
     private void installPromotionPosition(String code) throws Exception {
