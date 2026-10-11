@@ -37,7 +37,9 @@ public class DamkaFX extends Application {
     private Stage primaryStage;
     private AccountView accountView;
     private Dialog<Void> accountDialog;
+    private ProfileWindow profileWindow;
     private Button accountButton;
+    private Button profileButton;
     private boolean authRequestPending;
     // A local match belongs to the session that started it, never a later login.
     private String botMatchUsername;
@@ -257,6 +259,10 @@ public class DamkaFX extends Application {
         HBox.setHgrow(space, Priority.ALWAYS);
         Label badge = new Label("CHECKERS CLUB");
         badge.getStyleClass().add("header-badge");
+        profileButton = new Button("Profile");
+        profileButton.setId("profileButton");
+        profileButton.getStyleClass().add("secondary-button");
+        profileButton.setOnAction(event -> openProfile());
         accountButton = new Button();
         accountButton.setId("accountButton");
         accountButton.getStyleClass().add("secondary-button");
@@ -278,7 +284,7 @@ public class DamkaFX extends Application {
                 openAccountDialog(stage);
             }
         });
-        HBox header = new HBox(16, brand, space, badge, accountButton);
+        HBox header = new HBox(16, brand, space, badge, profileButton, accountButton);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("app-header");
         return header;
@@ -363,7 +369,7 @@ public class DamkaFX extends Application {
         if (isConnecting || roomRequestPending || isInRoom) {
             return;
         }
-        resetOnlineRoom(); // Keep an authenticated connection for result messages.
+        resetOnlineRoom(); // Keep an authenticated connection for profile/result messages.
         isOnlineMode = false;
         botGame = new Game(false, true);
         gameOver = false;
@@ -537,6 +543,7 @@ public class DamkaFX extends Application {
         roomCodeField.setDisable(!canChooseRoom);
         copyRoomButton.setDisable(!isInRoom || currentRoomCode == null);
         botButton.setDisable(isConnecting || authRequestPending || roomRequestPending || isInRoom);
+        profileButton.setDisable(!isAuthenticated());
         accountButton.setText(isAuthenticated() ? "Sign out" : "Log in");
         accountButton.setDisable(accountDialog != null || authRequestPending || isConnecting || isInRoom || roomRequestPending
                 || moveRequestPending || resignRequestPending || leaveRequestPending || boardView.isAnimating());
@@ -687,7 +694,7 @@ public class DamkaFX extends Application {
         activeRoomConnection.connect(command);
     }
 
-    // Account messages are independent of the ordered game animation queue.
+    // Account/profile messages are independent of the ordered game animation queue.
     private boolean handleAccountMessage(RoomConnection connection, String message, String requestedUsername) {
         if (message.startsWith("AUTH_OK ")) {
             if (!message.equals("AUTH_OK " + requestedUsername) || !authRequestPending) {
@@ -711,6 +718,7 @@ public class DamkaFX extends Application {
             }
             showStatus("Logged in as " + username + ". Create a room or play BOT.");
             updateControls();
+            refreshProfile();
         } else if (message.startsWith("AUTH_ERROR ")) {
             String detail = message.substring("AUTH_ERROR ".length());
             closeConnection(); // Retry uses a fresh transport and never keeps a password.
@@ -722,18 +730,56 @@ public class DamkaFX extends Application {
                 showError(detail);
             }
             updateControls();
+        } else if (message.startsWith("PROFILE ")) {
+            if (profileWindow != null && isAuthenticated()) {
+                try {
+                    ProfileData data = ProfileData.decode(message.substring("PROFILE ".length()));
+                    if (data.username().equals(authenticatedUsername)) {
+                        profileWindow.showData(data);
+                    }
+                } catch (IllegalArgumentException exception) {
+                    profileWindow.showError("The server sent an invalid profile.");
+                }
+            }
+        } else if (message.startsWith("PROFILE_ERROR ")) {
+            if (profileWindow != null) {
+                profileWindow.showError(message.substring("PROFILE_ERROR ".length()));
+            }
         } else if (message.startsWith("BOT_SAVED ")) {
             if (message.equals("BOT_SAVED " + botResultId) && !isOnlineMode && gameOver) {
                 showStatus("BOT result saved to your profile.");
             }
+            refreshProfile();
         } else if (message.startsWith("BOT_ERROR ")) {
             String[] parts = message.split(" ", 3);
             String detail = "BOT result was not saved: " + (parts.length == 3 ? parts[2] : "Server rejected the result.");
             showError(detail);
+            if (profileWindow != null) {
+                profileWindow.showError(detail);
+            }
         } else {
             return false;
         }
         return true;
+    }
+
+    private void openProfile() {
+        if (!isAuthenticated()) {
+            return;
+        }
+        if (profileWindow == null) {
+            profileWindow = new ProfileWindow(primaryStage, this::refreshProfile);
+        }
+        profileWindow.show();
+        profileWindow.toFront();
+        refreshProfile();
+    }
+
+    private void refreshProfile() {
+        if (profileWindow != null && profileWindow.isShowing() && isAuthenticated()) {
+            profileWindow.showLoading(authenticatedUsername);
+            sendNetworkCommand("PROFILE_REQUEST");
+        }
     }
 
     private void recordBotResult() {
@@ -911,6 +957,7 @@ public class DamkaFX extends Application {
         } else if ("ROOM_LEFT".equals(message)) {
             resetOnlineRoom();
             showStatus("You left the room. Create or join another match.");
+            refreshProfile();
         } else if (message.startsWith("ROOM_CLOSED")) {
             resetOnlineRoom();
             showStatus("The room is closed.");
@@ -930,6 +977,9 @@ public class DamkaFX extends Application {
         } else if (message.startsWith("RESULT_ERROR ")) {
             String detail = message.substring("RESULT_ERROR ".length());
             showError(detail);
+            if (profileWindow != null) {
+                profileWindow.showError(detail);
+            }
         }
         // TURN follows BOARD; controls reflect the complete state once both are processed.
         updateControls();
@@ -963,6 +1013,7 @@ public class DamkaFX extends Application {
         } else {
             showStatus("Player " + winner + " wins by game rules.");
         }
+        refreshProfile();
     }
 
     private void resetOnlineRoom() {
@@ -992,6 +1043,9 @@ public class DamkaFX extends Application {
         activeRoomConnection = null;
         authenticatedUsername = null;
         isConnecting = false;
+        if (profileWindow != null) {
+            profileWindow.setUnavailable("Log in again to refresh your profile.");
+        }
         if (connection != null) {
             connection.close();
         }
@@ -1006,6 +1060,9 @@ public class DamkaFX extends Application {
         closeConnection();
         if (accountDialog != null) {
             accountDialog.close();
+        }
+        if (profileWindow != null) {
+            profileWindow.close();
         }
     }
 

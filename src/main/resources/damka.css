@@ -21,6 +21,12 @@
     -fx-background-color: #f7f6f1;
 }
 
+.profile-username {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #234b3c;
+}
+
 .account-tabs .toggle-button {
     -fx-background-color: #e9eee6;
     -fx-text-fill: #527460;
@@ -41,6 +47,47 @@
 
 .account-card .error-message {
     -fx-text-fill: #8e3026;
+}
+
+.statistic-value {
+    -fx-font-size: 30px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #315c44;
+}
+
+.table-view {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e3e8dd;
+    -fx-border-radius: 7;
+    -fx-background-radius: 7;
+}
+
+.table-view .column-header-background,
+.table-view .column-header {
+    -fx-background-color: #edf0e7;
+}
+
+.table-view .column-header .label {
+    -fx-text-fill: #496d4f;
+    -fx-padding: 8;
+}
+
+.table-row-cell {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #eff2eb transparent;
+}
+
+.table-row-cell:odd {
+    -fx-background-color: #f9faf6;
+}
+
+.table-row-cell:selected {
+    -fx-background-color: #dde9d8;
+}
+
+.table-cell {
+    -fx-text-fill: #3f5b48;
+    -fx-padding: 9 6;
 }
 
 .content-scroll,
