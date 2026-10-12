@@ -89,4 +89,5 @@ The tests cover game rules, room messages over TCP, account authentication, and 
 
 ## Project book
 
-[Read the project book (Hebrew PDF)](docs/project-book/Damka_Project_Book_TCP_Profile.pdf).
+- [Project book (Hebrew PDF)](docs/project-book/Damka_Project_Book_TCP_Profile.pdf)
+- [Editable Word version for mentor comments](docs/project-book/Damka_Project_Book_TCP_Profile.docx)
