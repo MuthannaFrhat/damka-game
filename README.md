@@ -94,7 +94,7 @@ The tests cover game rules, room messages over TCP, account authentication, and 
 
 ## Presentation
 
-The final presentation has 13 English slides with Hebrew speaker notes. It covers the technology stack, class responsibilities, TCP flow, BOT search, persistence, verification, engineering challenges, and human contributions with AI assistance. The suggested schedule is 10 minutes of slides, a separate three-minute demonstration, and two minutes for questions. The demonstration is prepared separately and has no dedicated slide.
+The final presentation has 13 English slides with Hebrew speaker notes. It covers the technology stack, class responsibilities, TCP flow, BOT search, persistence, verification, learning challenges, and defined responsibility areas with AI assistance. The suggested schedule is 10 minutes of slides, a separate three-minute demonstration, and two minutes for questions. The demonstration is prepared separately and has no dedicated slide.
 
 - [Editable PowerPoint](docs/presentation/Damka_Presentation.pptx)
 - [Presentation PDF](docs/presentation/Damka_Presentation.pdf)
