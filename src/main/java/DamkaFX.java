@@ -162,6 +162,7 @@ public class DamkaFX extends Application {
         roomCodeLabel.getStyleClass().add("room-code-label");
         playerColorLabel = new Label("Your seat is waiting");
         playerColorLabel.getStyleClass().add("player-label");
+        playerColorLabel.setWrapText(true);
         matchStatusLabel = new Label("Ready when you are");
         matchStatusLabel.getStyleClass().add("match-status");
         matchStatusLabel.setWrapText(true);
@@ -201,7 +202,7 @@ public class DamkaFX extends Application {
         tableLayout.setRight(sidebar);
         BorderPane.setMargin(sidebar, new Insets(0, 0, 0, 24));
 
-        HBox header = buildHeader();
+        VBox header = buildHeader();
         BorderPane content = new BorderPane();
         content.setTop(header);
         content.setCenter(tableLayout);
@@ -261,13 +262,14 @@ public class DamkaFX extends Application {
         updateControls();
     }
 
-    private HBox buildHeader() {
+    private VBox buildHeader() {
+        Label accountIdentity = new Label("Player: " + authenticatedUsername);
+        accountIdentity.setId("accountIdentity");
+        accountIdentity.setWrapText(true);
+        accountIdentity.setMaxWidth(Double.MAX_VALUE);
+        accountIdentity.getStyleClass().add("account-identity");
         Label title = new Label("damka");
         title.getStyleClass().add("app-title");
-        Label accountIdentity = new Label("Signed in as " + authenticatedUsername);
-        accountIdentity.setId("accountIdentity");
-        accountIdentity.getStyleClass().add("app-subtitle");
-        VBox brand = new VBox(4, title, accountIdentity);
         Pane space = new Pane();
         HBox.setHgrow(space, Priority.ALWAYS);
         Label badge = new Label("CHECKERS CLUB");
@@ -280,8 +282,9 @@ public class DamkaFX extends Application {
         accountButton.setId("accountButton");
         accountButton.getStyleClass().add("secondary-button");
         accountButton.setOnAction(event -> showAccountScreen(null));
-        HBox header = new HBox(16, brand, space, badge, profileButton, accountButton);
-        header.setAlignment(Pos.CENTER_LEFT);
+        HBox toolbar = new HBox(16, title, space, badge, profileButton, accountButton);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        VBox header = new VBox(12, accountIdentity, toolbar);
         header.getStyleClass().add("app-header");
         return header;
     }
@@ -373,7 +376,7 @@ public class DamkaFX extends Application {
         botMatchDifficulty = difficultyBox.getSelectionModel().getSelectedIndex() + 1;
         botResultRecorded = false;
         botResultId = null;
-        playerColorLabel.setText(authenticatedUsername + " (X) · BOT (O)");
+        playerColorLabel.setText(authenticatedUsername + " (Green) · BOT (Red)");
         roomCodeLabel.setText("BOT match");
         showStatus("BOT results will be saved to " + authenticatedUsername + ".");
         matchStatusLabel.setText("Against BOT");
@@ -582,7 +585,7 @@ public class DamkaFX extends Application {
         selectedPosition = null;
         moveRequestPending = false;
         incomingMessages.clear();
-        turnLabel.setText("Waiting for the server");
+        showTurnStatus("Waiting for the server");
         matchStatusLabel.setText("Connecting to match");
         drawBoard();
         updateControls();
@@ -842,7 +845,7 @@ public class DamkaFX extends Application {
                     moveRequestPending = false;
                     showStatus("Move accepted.");
                 }
-                turnLabel.setText("Turn: " + turn[1] + " (" + serverTurn + ")");
+                showPlayerTurn(turn[1], serverTurn);
             } else {
                 showError("The server sent an invalid turn.");
             }
@@ -850,7 +853,7 @@ public class DamkaFX extends Application {
             String playerColor = message.substring("PLAYER ".length()).trim();
             if ("X".equals(playerColor) || "O".equals(playerColor)) {
                 myPlayerColor = playerColor;
-                playerColorLabel.setText(authenticatedUsername + " (" + playerColor + ")");
+                playerColorLabel.setText(authenticatedUsername + " (" + playerColorName(playerColor.charAt(0)) + ")");
             }
         } else if (message.startsWith("ROOM_CREATED ")) {
             String code = message.substring("ROOM_CREATED ".length()).trim();
@@ -861,7 +864,7 @@ public class DamkaFX extends Application {
             isInRoom = true;
             roomRequestPending = false;
             matchStatusLabel.setText("Waiting for opponent");
-            turnLabel.setText("Waiting for opponent");
+            showTurnStatus("Waiting for opponent");
             showStatus("Room created. Share the code to invite a player.");
         } else if (message.startsWith("ROOM_JOINED ")) {
             String code = message.substring("ROOM_JOINED ".length()).trim();
@@ -927,18 +930,19 @@ public class DamkaFX extends Application {
         resignRequestPending = false;
         moveRequestPending = false;
         selectedPosition = null;
-        matchStatusLabel.setText("Player " + winner + " wins");
-        turnLabel.setText("Match finished");
+        String winnerColor = playerColorName(winner);
+        matchStatusLabel.setText(winnerColor + " wins");
+        showTurnStatus("Match finished");
         drawBoard();
         if ("RESIGNATION".equals(reason)) {
             showStatus(myPlayerColor != null && winner == myPlayerColor.charAt(0)
-                    ? "You win by resignation." : "You resigned. Player " + winner + " wins.");
+                    ? "You win by resignation." : "You resigned. " + winnerColor + " wins.");
         } else if ("OPPONENT_LEFT".equals(reason)) {
             showStatus("Opponent left. You win.");
         } else if ("OPPONENT_DISCONNECTED".equals(reason)) {
             showStatus("Opponent disconnected. You win.");
         } else {
-            showStatus("Player " + winner + " wins by game rules.");
+            showStatus(winnerColor + " wins by game rules.");
         }
         refreshProfile();
     }
@@ -960,7 +964,7 @@ public class DamkaFX extends Application {
         incomingMessages.clear();
         roomCodeLabel.setText("No room yet");
         playerColorLabel.setText("Your seat is waiting");
-        turnLabel.setText("Waiting for a match");
+        showTurnStatus("Waiting for a match");
         matchStatusLabel.setText("Ready when you are");
         drawBoard();
     }
@@ -995,7 +999,7 @@ public class DamkaFX extends Application {
             drawBoard();
             String result = winner == 'X' ? "You win!" : "BOT wins.";
             matchStatusLabel.setText(result);
-            turnLabel.setText("Match finished");
+            showTurnStatus("Match finished");
             showStatus(result);
             recordBotResult();
             updateControls();
@@ -1024,7 +1028,23 @@ public class DamkaFX extends Application {
     private void updateBotTurnLabel() {
         Player player = botGame.getCurrentPlayer();
         String name = player.isBot() ? "BOT" : authenticatedUsername;
-        turnLabel.setText("Turn: " + name + " (" + Character.toUpperCase(player.getSymbol()) + ")");
+        showPlayerTurn(name, player.getSymbol());
+    }
+
+    // X/O stay inside the game and protocol; the screen uses the board's colors.
+    private String playerColorName(char symbol) {
+        return Character.toUpperCase(symbol) == 'X' ? "Green" : "Red";
+    }
+
+    private void showTurnStatus(String text) {
+        turnLabel.setText(text);
+        turnLabel.getStyleClass().removeAll("green-turn", "red-turn");
+    }
+
+    private void showPlayerTurn(String name, char symbol) {
+        String color = playerColorName(symbol);
+        showTurnStatus("Turn: " + name + " · " + color);
+        turnLabel.getStyleClass().add("Green".equals(color) ? "green-turn" : "red-turn");
     }
 
     private void performBotMove() {

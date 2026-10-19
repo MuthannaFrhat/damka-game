@@ -97,18 +97,26 @@
 }
 
 .app-header {
-    -fx-padding: 0 0 28 0;
+    -fx-padding: 0 0 20 0;
+}
+
+.account-identity {
+    -fx-font-size: 26px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #234b3c;
+    -fx-background-color: #e8eee4;
+    -fx-background-radius: 12;
+    -fx-padding: 12 18;
+}
+
+.app-header .app-title {
+    -fx-font-size: 28px;
 }
 
 .app-title {
     -fx-font-family: "Georgia";
     -fx-font-size: 46px;
     -fx-text-fill: #234b3c;
-}
-
-.app-subtitle {
-    -fx-font-size: 13px;
-    -fx-text-fill: #7d857b;
 }
 
 .header-badge {
@@ -131,6 +139,16 @@
     -fx-background-color: #e8eee4;
     -fx-background-radius: 8;
     -fx-padding: 9 13;
+}
+
+.turn-label.green-turn {
+    -fx-text-fill: #234b3c;
+    -fx-background-color: #e8eee4;
+}
+
+.turn-label.red-turn {
+    -fx-text-fill: #9c3c30;
+    -fx-background-color: #fbe9e3;
 }
 
 .match-status {

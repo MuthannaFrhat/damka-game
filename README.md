@@ -53,7 +53,7 @@ On Linux or macOS, use `bash gradlew` instead of `.\gradlew.bat`.
 
 Create an account or log in with a different username in each window. The first player creates a room and shares its code using **Copy**. The second player enters the code and joins.
 
-The creator plays X and moves first; the joining player plays O. Both windows show the current player's username and symbol, for example **Turn: Alice (X)**. Select a piece and then its destination. Captures are mandatory when available, and a capture chain continues with the same piece. Use **Resign** to concede or **Leave room** to exit. Leaving or disconnecting during an active match ends it in the other player's favor.
+The creator plays Green and moves first; the joining player plays Red. A prominent **Player: Alice** label at the top identifies the account that owns each window. Both windows show the current player's username and color, for example **Turn: Alice · Green**, with a matching green or red accent. Select a piece and then its destination. Captures are mandatory when available, and a capture chain continues with the same piece. Use **Resign** to concede or **Leave room** to exit. Leaving or disconnecting during an active match ends it in the other player's favor.
 
 ## Play on two computers
 
