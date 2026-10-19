@@ -8,8 +8,6 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.input.Clipboard;
@@ -21,7 +19,6 @@ import javafx.geometry.Rectangle2D;
 import javafx.scene.control.ScrollPane;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
-import javafx.stage.Modality;
 
 import java.util.ArrayDeque;
 import java.util.Queue;
@@ -32,18 +29,13 @@ import java.time.Instant;
 
 /** Coordinates UI events and server messages. All fields here belong to the JavaFX Thread. */
 public class DamkaFX extends Application {
-    private String username = "Guest";
     private String authenticatedUsername;
     private Stage primaryStage;
     private AccountView accountView;
-    private Dialog<Void> accountDialog;
     private ProfileWindow profileWindow;
     private Button accountButton;
     private Button profileButton;
     private boolean authRequestPending;
-    // A local match belongs to the session that started it, never a later login.
-    private String botMatchUsername;
-    private RoomConnection botMatchConnection;
     private int botMatchDifficulty;
     private boolean botResultRecorded;
     private String botResultId;
@@ -76,7 +68,6 @@ public class DamkaFX extends Application {
     private String myPlayerColor;
     // Online state: one connection, a display snapshot, and pending request flags.
     private RoomConnection activeRoomConnection;
-    private boolean isConnecting;
     private boolean applicationClosing;
     private boolean roomRequestPending = false;
     private boolean leaveRequestPending;
@@ -95,12 +86,28 @@ public class DamkaFX extends Application {
     @Override
     public void start(Stage stage) {
         primaryStage = stage;
-        accountView = new AccountView(this::submitAuthentication, name -> {
-            username = name;
-            accountView = null;
-            showGameScreen(stage);
-            startBotGame();
-        });
+        showAccountScreen(null);
+    }
+
+    private void showAccountScreen(String message) {
+        closeConnection();
+        if (boardView != null) {
+            isOnlineMode = true;
+            resetOnlineRoom();
+            boardView = null;
+        }
+        if (profileWindow != null) {
+            profileWindow.close();
+            profileWindow = null;
+        }
+        botGame = null;
+        botPlayer = null;
+        botResultId = null;
+        authRequestPending = false;
+        accountView = new AccountView(this::submitAuthentication);
+        if (message != null) {
+            accountView.showError(message);
+        }
         StackPane form = new StackPane(accountView);
         form.getStyleClass().addAll("app-root", "onboarding-root");
         ScrollPane scroll = new ScrollPane(form);
@@ -109,12 +116,13 @@ public class DamkaFX extends Application {
         scroll.getStyleClass().add("content-scroll");
         Scene scene = new Scene(scroll, 460, 650);
         scene.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
+        Stage stage = primaryStage;
         stage.setTitle("Welcome to Damka");
         stage.setScene(scene);
-        stage.setWidth(460);
-        stage.setHeight(Math.min(700, Screen.getPrimary().getVisualBounds().getHeight() * 0.92));
         stage.setMinWidth(360);
         stage.setMinHeight(460);
+        stage.setWidth(460);
+        stage.setHeight(Math.min(700, Screen.getPrimary().getVisualBounds().getHeight() * 0.92));
         stage.show();
         stage.centerOnScreen();
     }
@@ -169,7 +177,7 @@ public class DamkaFX extends Application {
         difficultyBox.setOnAction(e -> {
             botDepth = getDepthFromDifficulty();
             if (!isOnlineMode) {
-                turnLabel.setText(botGame.getCurrentPlayer().isBot() ? "BOT’s turn" : "Your turn");
+                updateBotTurnLabel();
                 maybePerformBotTurn();
             }
         });
@@ -193,7 +201,7 @@ public class DamkaFX extends Application {
         tableLayout.setRight(sidebar);
         BorderPane.setMargin(sidebar, new Insets(0, 0, 0, 24));
 
-        HBox header = buildHeader(stage);
+        HBox header = buildHeader();
         BorderPane content = new BorderPane();
         content.setTop(header);
         content.setCenter(tableLayout);
@@ -228,6 +236,10 @@ public class DamkaFX extends Application {
         Scene scene = new Scene(window, windowWidth, windowHeight);
         scene.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
         Runnable fitBoardToWindow = () -> {
+            // Ignore layout events from a screen that has been replaced.
+            if (boardView == null || stage.getScene() != scene) {
+                return;
+            }
             double availableHeight = Math.max(280, scene.getHeight() - header.getHeight() - connectionStatusLabel.getHeight() - 150);
             boardView.resizeToFit(boardSection.getWidth(), availableHeight);
         };
@@ -249,7 +261,7 @@ public class DamkaFX extends Application {
         updateControls();
     }
 
-    private HBox buildHeader(Stage stage) {
+    private HBox buildHeader() {
         Label title = new Label("damka");
         title.getStyleClass().add("app-title");
         Label subtitle = new Label("A classic game. A fresh challenge.");
@@ -263,27 +275,10 @@ public class DamkaFX extends Application {
         profileButton.setId("profileButton");
         profileButton.getStyleClass().add("secondary-button");
         profileButton.setOnAction(event -> openProfile());
-        accountButton = new Button();
+        accountButton = new Button("Sign out");
         accountButton.setId("accountButton");
         accountButton.getStyleClass().add("secondary-button");
-        accountButton.setOnAction(event -> {
-            if (isInRoom || roomRequestPending || moveRequestPending || resignRequestPending
-                    || leaveRequestPending || authRequestPending || boardView.isAnimating()) {
-                return;
-            }
-            if (isAuthenticated()) {
-                closeConnection();
-                if (isOnlineMode) {
-                    resetOnlineRoom();
-                } else {
-                    matchStatusLabel.setText("Practice · results are not saved");
-                }
-                showStatus("Signed out. Local practice is not recorded.");
-                updateControls();
-            } else {
-                openAccountDialog(stage);
-            }
-        });
+        accountButton.setOnAction(event -> showAccountScreen(null));
         HBox header = new HBox(16, brand, space, badge, profileButton, accountButton);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("app-header");
@@ -335,9 +330,9 @@ public class DamkaFX extends Application {
     }
 
     private VBox buildBotPanel() {
-        Label title = new Label("A little practice");
+        Label title = new Label("Play against BOT");
         title.getStyleClass().add("section-title");
-        Label description = new Label("Play locally against the BOT.");
+        Label description = new Label("Choose a difficulty and start a match.");
         description.getStyleClass().add("section-description");
         botButton.setMaxWidth(Double.MAX_VALUE);
         VBox panel = new VBox(10, title, description, difficultyControls, botButton);
@@ -366,7 +361,7 @@ public class DamkaFX extends Application {
     }
 
     private void startBotGame() {
-        if (isConnecting || roomRequestPending || isInRoom) {
+        if (!isAuthenticated() || roomRequestPending || isInRoom) {
             return;
         }
         resetOnlineRoom(); // Keep an authenticated connection for profile/result messages.
@@ -374,23 +369,22 @@ public class DamkaFX extends Application {
         botGame = new Game(false, true);
         gameOver = false;
         botDepth = getDepthFromDifficulty();
-        botMatchUsername = isAuthenticated() ? authenticatedUsername : null;
-        botMatchConnection = isAuthenticated() ? activeRoomConnection : null;
         botMatchDifficulty = difficultyBox.getSelectionModel().getSelectedIndex() + 1;
         botResultRecorded = false;
         botResultId = null;
-        playerColorLabel.setText("You play forest · Player X");
-        roomCodeLabel.setText("Local practice");
-        showStatus(botMatchUsername == null
-                ? "Practice match. Statistics and history are not saved."
-                : "BOT results will be saved to " + botMatchUsername + ".");
-        matchStatusLabel.setText(botMatchUsername == null ? "Practice · results are not saved" : "Against BOT");
-        turnLabel.setText("Your turn");
+        playerColorLabel.setText(authenticatedUsername + " (X) · BOT (O)");
+        roomCodeLabel.setText("BOT match");
+        showStatus("BOT results will be saved to " + authenticatedUsername + ".");
+        matchStatusLabel.setText("Against BOT");
+        updateBotTurnLabel();
         drawBoard();
         updateControls();
     }
 
     private void handleClick(int row, int col) {
+        if (!isAuthenticated()) {
+            return;
+        }
         if (isOnlineMode) {
             handleOnlineClick(row, col);
         } else {
@@ -537,21 +531,20 @@ public class DamkaFX extends Application {
         if (boardView == null) {
             return;
         }
-        boolean canChooseRoom = isAuthenticated() && !isConnecting && !roomRequestPending && !isInRoom;
+        boolean canChooseRoom = isAuthenticated() && !roomRequestPending && !isInRoom;
         createRoomButton.setDisable(!canChooseRoom);
         joinRoomButton.setDisable(!canChooseRoom);
         roomCodeField.setDisable(!canChooseRoom);
         copyRoomButton.setDisable(!isInRoom || currentRoomCode == null);
-        botButton.setDisable(isConnecting || authRequestPending || roomRequestPending || isInRoom);
+        botButton.setDisable(!isAuthenticated() || roomRequestPending || isInRoom);
         profileButton.setDisable(!isAuthenticated());
-        accountButton.setText(isAuthenticated() ? "Sign out" : "Log in");
-        accountButton.setDisable(accountDialog != null || authRequestPending || isConnecting || isInRoom || roomRequestPending
+        accountButton.setDisable(authRequestPending || isInRoom || roomRequestPending
                 || moveRequestPending || resignRequestPending || leaveRequestPending || boardView.isAnimating());
-        difficultyBox.setDisable(isInRoom || isOnlineMode);
+        difficultyBox.setDisable(!isAuthenticated() || isInRoom || isOnlineMode);
         resignButton.setDisable(!isInRoom || serverBoardSnapshot == null || gameOver
-            || resignRequestPending || moveRequestPending || leaveRequestPending || isConnecting || boardView.isAnimating());
+            || resignRequestPending || moveRequestPending || leaveRequestPending || boardView.isAnimating());
         leaveRoomButton.setDisable(!isInRoom || leaveRequestPending || moveRequestPending
-                || resignRequestPending || isConnecting || boardView.isAnimating());
+                || resignRequestPending || boardView.isAnimating());
     }
 
     private void createRoom() {
@@ -572,7 +565,7 @@ public class DamkaFX extends Application {
     }
 
     private void submitRoomRequest(String request) {
-        if (!isAuthenticated() || isConnecting || roomRequestPending || isInRoom) {
+        if (!isAuthenticated() || roomRequestPending || isInRoom) {
             return;
         }
 
@@ -602,47 +595,12 @@ public class DamkaFX extends Application {
                 && activeRoomConnection.isConnected() && !authRequestPending;
     }
 
-    private void openAccountDialog(Stage stage) {
-        if (accountDialog != null) {
-            accountDialog.getDialogPane().getScene().getWindow().requestFocus();
-            return;
-        }
-        accountView = new AccountView(this::submitAuthentication, null);
-        accountDialog = new Dialog<>();
-        accountDialog.initOwner(stage);
-        accountDialog.initModality(Modality.NONE);
-        accountDialog.setTitle("Your account");
-        accountDialog.getDialogPane().setContent(accountView);
-        accountDialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
-        accountDialog.getDialogPane().getStyleClass().add("profile-dialog");
-        accountDialog.getDialogPane().getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
-        accountDialog.setOnHidden(event -> {
-            if (authRequestPending) {
-                closeConnection();
-                authRequestPending = false;
-                updateControls();
-            }
-            accountDialog = null;
-            accountView = null;
-            updateControls();
-        });
-        accountDialog.show();
-        updateControls();
-    }
-
     private void submitAuthentication(AccountView.Credentials credentials) {
-        if (boardView != null && boardView.isAnimating()) {
-            accountView.showError("Wait for the current move to finish.");
-            return;
-        }
-        if (authRequestPending || isInRoom || roomRequestPending || moveRequestPending
-                || resignRequestPending || leaveRequestPending) {
-            accountView.showError("Leave the room before changing accounts.");
+        if (authRequestPending) {
             return;
         }
         closeConnection();
         authRequestPending = true;
-        isConnecting = true;
         accountView.setBusy(true);
         updateControls();
         String requestedUsername = credentials.username();
@@ -670,24 +628,7 @@ public class DamkaFX extends Application {
             @Override
             public void onDisconnected(RoomConnection connection, String detail) {
                 onConnectionEvent(connection, () -> {
-                    boolean authenticationFailed = authRequestPending;
-                    closeConnection();
-                    authRequestPending = false;
-                    if (accountView != null) {
-                        accountView.setBusy(false);
-                        accountView.showError("Connection ended: " + detail);
-                    }
-                    if (boardView != null) {
-                        if (isOnlineMode) {
-                            resetOnlineRoom();
-                        } else {
-                            matchStatusLabel.setText("Practice · results are not saved");
-                        }
-                        if (!authenticationFailed) {
-                            showError("Connection ended: " + detail + ". BOT practice remains available.");
-                        }
-                        updateControls();
-                    }
+                    showAccountScreen("Connection ended: " + detail + ". Log in to play again.");
                 });
             }
         });
@@ -700,23 +641,14 @@ public class DamkaFX extends Application {
             if (!message.equals("AUTH_OK " + requestedUsername) || !authRequestPending) {
                 return true;
             }
-            authenticatedUsername = username = requestedUsername;
+            authenticatedUsername = requestedUsername;
             authRequestPending = false;
-            isConnecting = false;
             if (accountView != null) {
                 accountView.setBusy(false);
             }
-            if (accountDialog != null) {
-                accountDialog.close();
-            }
             accountView = null;
-            if (boardView == null) {
-                showGameScreen(primaryStage);
-            } else {
-                isOnlineMode = true;
-                resetOnlineRoom();
-            }
-            showStatus("Logged in as " + username + ". Create a room or play BOT.");
+            showGameScreen(primaryStage);
+            showStatus("Logged in as " + authenticatedUsername + ". Create a room or play BOT.");
             updateControls();
             refreshProfile();
         } else if (message.startsWith("AUTH_ERROR ")) {
@@ -783,16 +715,10 @@ public class DamkaFX extends Application {
     }
 
     private void recordBotResult() {
-        if (botResultRecorded) {
+        if (botResultRecorded || !isAuthenticated()) {
             return;
         }
         botResultRecorded = true;
-        if (botMatchUsername == null || !isAuthenticated() || activeRoomConnection != botMatchConnection
-                || !botMatchUsername.equals(authenticatedUsername)) {
-            showStatus((botGame.getWinnerSymbol() == 'X' ? "You win!" : "BOT wins.")
-                    + " Practice results are not saved.");
-            return;
-        }
         botResultId = UUID.randomUUID().toString();
         String outcome = botGame.getWinnerSymbol() == 'X' ? "WIN" : "LOSS";
         sendNetworkCommand("BOT_RESULT " + botResultId + " " + outcome + " " + botMatchDifficulty + " " + Instant.now());
@@ -908,22 +834,22 @@ public class DamkaFX extends Application {
             serverBoardSnapshot = snapshot;
             drawBoard();
         } else if (message.startsWith("TURN ")) {
-            String turn = message.substring("TURN ".length()).trim();
-            if ("X".equals(turn) || "O".equals(turn)) {
-                serverTurn = turn.charAt(0);
+            String[] turn = message.substring("TURN ".length()).trim().split(" ", 2);
+            if (turn.length == 2 && ("X".equals(turn[0]) || "O".equals(turn[0])) && !turn[1].isBlank()) {
+                serverTurn = turn[0].charAt(0);
                 if (moveRequestPending) {
                     moveRequestPending = false;
                     showStatus("Move accepted.");
                 }
-                turnLabel.setText(myPlayerColor != null && serverTurn == myPlayerColor.charAt(0)
-                        ? "Your turn" : "Opponent’s turn");
+                turnLabel.setText("Turn: " + turn[1] + " (" + serverTurn + ")");
+            } else {
+                showError("The server sent an invalid turn.");
             }
         } else if (message.startsWith("PLAYER ")) {
             String playerColor = message.substring("PLAYER ".length()).trim();
             if ("X".equals(playerColor) || "O".equals(playerColor)) {
                 myPlayerColor = playerColor;
-                playerColorLabel.setText("X".equals(playerColor)
-                        ? "You play forest · Player X" : "You play coral · Player O");
+                playerColorLabel.setText(authenticatedUsername + " (" + playerColor + ")");
             }
         } else if (message.startsWith("ROOM_CREATED ")) {
             String code = message.substring("ROOM_CREATED ".length()).trim();
@@ -1042,10 +968,6 @@ public class DamkaFX extends Application {
         RoomConnection connection = activeRoomConnection;
         activeRoomConnection = null;
         authenticatedUsername = null;
-        isConnecting = false;
-        if (profileWindow != null) {
-            profileWindow.setUnavailable("Log in again to refresh your profile.");
-        }
         if (connection != null) {
             connection.close();
         }
@@ -1058,9 +980,6 @@ public class DamkaFX extends Application {
             boardView.stopAnimation();
         }
         closeConnection();
-        if (accountDialog != null) {
-            accountDialog.close();
-        }
         if (profileWindow != null) {
             profileWindow.close();
         }
@@ -1088,16 +1007,23 @@ public class DamkaFX extends Application {
                     ? "BOT continues its capture." : "Continue capturing with the same piece.");
         }
 
-        turnLabel.setText(botGame.getCurrentPlayer().isBot() ? "BOT’s turn" : "Your turn");
+        updateBotTurnLabel();
         drawBoard();
         maybePerformBotTurn();
         updateControls();
     }
 
     private void maybePerformBotTurn() {
-        if (!isOnlineMode && !gameOver && !boardView.isAnimating() && botGame.getCurrentPlayer().isBot()) {
+        if (isAuthenticated() && !isOnlineMode && !gameOver && !boardView.isAnimating()
+                && botGame.getCurrentPlayer().isBot()) {
             performBotMove();
         }
+    }
+
+    private void updateBotTurnLabel() {
+        Player player = botGame.getCurrentPlayer();
+        String name = player.isBot() ? "BOT" : authenticatedUsername;
+        turnLabel.setText("Turn: " + name + " (" + Character.toUpperCase(player.getSymbol()) + ")");
     }
 
     private void performBotMove() {

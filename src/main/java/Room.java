@@ -207,7 +207,9 @@ public class Room {
 
     private boolean broadcastState() {
         String boardMessage = "BOARD " + encodeBoard();
-        String turnMessage = "TURN " + Character.toUpperCase(game.getCurrentPlayer().getSymbol());
+        char turnSymbol = Character.toUpperCase(game.getCurrentPlayer().getSymbol());
+        String turnUsername = turnSymbol == 'X' ? firstUsername : secondUsername;
+        String turnMessage = "TURN " + turnSymbol + " " + turnUsername;
         firstOutput.println(boardMessage);
         secondOutput.println(boardMessage);
         firstOutput.println(turnMessage);

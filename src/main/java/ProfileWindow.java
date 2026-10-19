@@ -157,12 +157,4 @@ public final class ProfileWindow extends Stage {
         refresh.setDisable(false);
     }
 
-    public void setUnavailable(String message) {
-        history.getItems().clear();
-        for (Label value : new Label[]{onlinePlayed, onlineWins, onlineLosses, botPlayed, botWins, botLosses}) {
-            value.setText("—");
-        }
-        status.setText(message);
-        refresh.setDisable(true);
-    }
 }

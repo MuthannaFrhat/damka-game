@@ -6,7 +6,7 @@ A checkers game built with Java 17 and JavaFX. Two players can play over a local
 
 - Online rooms with a code for creating and joining a match.
 - Server-controlled multiplayer boards, move validation, turns, and results.
-- Local BOT games with three difficulty levels.
+- BOT games with three difficulty levels, available after login.
 - Sign-up, login, and persistent profiles with separate online and BOT statistics.
 - Match history stored in SQLite on the server.
 - Shared board animation, room-code copying, and clear game messages.
@@ -26,7 +26,7 @@ Open the folder containing `build.gradle` and wait for the Java project import t
 2. Open `src/main/java/Main.java` and click **Run** to start the first player.
 3. Run `Main` again to start the second player.
 
-Keep the server running while playing online. To practice without a server, run only `Main` and choose **Play BOT offline**.
+Keep the server running for both game modes. Create an account or log in before choosing an online room or a BOT game. Signing out or losing the server connection returns the app to the login screen.
 
 ## Run from terminals
 
@@ -53,7 +53,7 @@ On Linux or macOS, use `bash gradlew` instead of `.\gradlew.bat`.
 
 Create an account or log in with a different username in each window. The first player creates a room and shares its code using **Copy**. The second player enters the code and joins.
 
-The creator plays X and moves first; the joining player plays O. Select a piece and then its destination. Captures are mandatory when available, and a capture chain continues with the same piece. Use **Resign** to concede or **Leave room** to exit. Leaving or disconnecting during an active match ends it in the other player's favor.
+The creator plays X and moves first; the joining player plays O. Both windows show the current player's username and symbol, for example **Turn: Alice (X)**. Select a piece and then its destination. Captures are mandatory when available, and a capture chain continues with the same piece. Use **Resign** to concede or **Leave room** to exit. Leaving or disconnecting during an active match ends it in the other player's favor.
 
 ## Play on two computers
 
@@ -77,7 +77,7 @@ Usernames are case-sensitive. Passwords are stored as salted hashes. Accounts an
 
 **Profile** displays separate online and BOT statistics and the latest 100 matches. Statistics include all recorded matches. Use **Refresh** to reload the data, then close the profile window to return to the game.
 
-Online results are validated and recorded by the server. BOT results are reported by the client and are saved only when the match starts and finishes under the same logged-in account and connection. Offline practice and games completed after losing that connection are not recorded or uploaded later.
+Online results are validated and recorded by the server. BOT moves are calculated locally, and completed results are reported to the server for the logged-in account. Signing out or disconnecting ends the current BOT session; unfinished games are not recorded or resumed after login.
 
 ## Tests
 

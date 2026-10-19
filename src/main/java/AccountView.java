@@ -21,9 +21,8 @@ public final class AccountView extends VBox {
     private final ToggleButton loginTab = new ToggleButton("Log in");
     private final ToggleButton signupTab = new ToggleButton("Create account");
     private final VBox confirmationControls;
-    private Button offlineButton;
 
-    public AccountView(Consumer<Credentials> onSubmit, Consumer<String> onOffline) {
+    public AccountView(Consumer<Credentials> onSubmit) {
         setSpacing(12);
         setMaxWidth(360);
         setMaxHeight(USE_PREF_SIZE);
@@ -75,20 +74,6 @@ public final class AccountView extends VBox {
         getChildren().addAll(title, welcome, tabRow,
                 new VBox(6, new Label("Username"), username),
                 new VBox(6, new Label("Password"), password), confirmationControls, error, submit);
-        if (onOffline != null) {
-            offlineButton = new Button("Play BOT offline");
-            offlineButton.setId("offlineBotButton");
-            offlineButton.setMaxWidth(Double.MAX_VALUE);
-            offlineButton.getStyleClass().add("secondary-button");
-            offlineButton.setOnAction(event -> {
-                clearPasswords();
-                onOffline.accept("Guest");
-            });
-            Label offlineNote = new Label("Offline practice does not save statistics or history.");
-            offlineNote.setWrapText(true);
-            offlineNote.getStyleClass().add("section-description");
-            getChildren().addAll(offlineButton, offlineNote);
-        }
     }
 
     private void selectMode(boolean signup) {
@@ -111,9 +96,6 @@ public final class AccountView extends VBox {
         loginTab.setDisable(busy);
         signupTab.setDisable(busy);
         submit.setDisable(busy);
-        if (offlineButton != null) {
-            offlineButton.setDisable(busy);
-        }
         error.setText(busy ? "Connecting..." : "");
     }
 

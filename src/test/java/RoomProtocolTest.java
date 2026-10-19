@@ -81,11 +81,11 @@ class RoomProtocolTest {
             match.x.send("MOVE 5 0 5 1");
             assertEquals("ERROR Invalid move.", match.x.read());
 
-            String board = acceptedMove(match, 'X', "MOVE 5 0 4 1", "TURN O");
+            String board = acceptedMove(match, 'X', "MOVE 5 0 4 1", 'O');
             assertEquals('.', board.charAt(40));
             assertEquals('x', board.charAt(33));
 
-            board = acceptedMove(match, 'O', "MOVE 2 1 3 0", "TURN X");
+            board = acceptedMove(match, 'O', "MOVE 2 1 3 0", 'X');
             assertEquals('.', board.charAt(17));
             assertEquals('o', board.charAt(24));
         }
@@ -104,7 +104,7 @@ class RoomProtocolTest {
             assertEquals("ERROR Coordinates must be integers.", match.x.read());
 
             // Rejected requests must leave X's turn and initial pieces intact.
-            String board = acceptedMove(match, 'X', "MOVE 5 0 4 1", "TURN O");
+            String board = acceptedMove(match, 'X', "MOVE 5 0 4 1", 'O');
             assertEquals('.', board.charAt(40));
             assertEquals('x', board.charAt(33));
         }
@@ -131,8 +131,8 @@ class RoomProtocolTest {
             assertEquals("ROOM_READY " + code, joined.read());
             assertEquals("ROOM_READY " + code, creator.read());
             assertEquals(creator.read(), joined.read());
-            assertEquals("TURN X", creator.read());
-            assertEquals("TURN X", joined.read());
+            assertEquals("TURN X " + creator.username, creator.read());
+            assertEquals("TURN X " + creator.username, joined.read());
 
             // Rejection does not accidentally assign the third client to a room.
             rejected.send("CREATE_ROOM");
@@ -144,12 +144,12 @@ class RoomProtocolTest {
     @Test
     void preservesForcedCaptureAndSamePieceMultiCapture() throws Exception {
         try (Match match = openMatch()) {
-            acceptedMove(match, 'X', "MOVE 5 0 4 1", "TURN O");
-            acceptedMove(match, 'O', "MOVE 2 3 3 4", "TURN X");
-            acceptedMove(match, 'X', "MOVE 5 4 4 5", "TURN O");
-            acceptedMove(match, 'O', "MOVE 1 2 2 3", "TURN X");
-            acceptedMove(match, 'X', "MOVE 6 1 5 0", "TURN O");
-            acceptedMove(match, 'O', "MOVE 3 4 4 3", "TURN X");
+            acceptedMove(match, 'X', "MOVE 5 0 4 1", 'O');
+            acceptedMove(match, 'O', "MOVE 2 3 3 4", 'X');
+            acceptedMove(match, 'X', "MOVE 5 4 4 5", 'O');
+            acceptedMove(match, 'O', "MOVE 1 2 2 3", 'X');
+            acceptedMove(match, 'X', "MOVE 6 1 5 0", 'O');
+            acceptedMove(match, 'O', "MOVE 3 4 4 3", 'X');
 
             match.x.send("MOVE 5 6 4 7");
             assertEquals("ERROR Invalid move.", match.x.read());
@@ -159,13 +159,13 @@ class RoomProtocolTest {
             assertEquals(captureMetadata, match.x.read());
             assertEquals(captureMetadata, match.o.read());
             assertEquals(match.x.read(), match.o.read());
-            assertEquals("TURN X", match.x.read());
-            assertEquals("TURN X", match.o.read());
+            assertEquals("TURN X " + match.x.username, match.x.read());
+            assertEquals("TURN X " + match.x.username, match.o.read());
 
             match.x.send("MOVE 5 6 4 7");
             assertEquals("ERROR Continue capturing with the same piece.", match.x.read());
 
-            acceptedMove(match, 'X', "MOVE 3 4 1 2", "TURN O");
+            acceptedMove(match, 'X', "MOVE 3 4 1 2", 'O');
         }
     }
 
@@ -187,9 +187,9 @@ class RoomProtocolTest {
 
                 String board = encodePromotionPosition();
                 assertEquals("BOARD " + board, o.read());
-                assertEquals("TURN X", o.read());
+                assertEquals("TURN X " + x.username, o.read());
                 assertEquals("BOARD " + board, x.read());
-                assertEquals("TURN X", x.read());
+                assertEquals("TURN X " + x.username, x.read());
 
                 x.send("MOVE 1 0 0 1");
                 String applied = "MOVE_APPLIED 1 0 0 1 -1 -1";
@@ -201,8 +201,8 @@ class RoomProtocolTest {
                 String promotedBoard = new String(promotedCells);
                 assertEquals("BOARD " + promotedBoard, x.read());
                 assertEquals("BOARD " + promotedBoard, o.read());
-                assertEquals("TURN O", x.read());
-                assertEquals("TURN O", o.read());
+                assertEquals("TURN O " + o.username, x.read());
+                assertEquals("TURN O " + o.username, o.read());
                 assertEquals("GAME_OVER X RULES", x.read());
                 assertEquals("GAME_OVER X RULES", o.read());
                 assertEquals(1, resultCount("RULES"));
@@ -227,8 +227,8 @@ class RoomProtocolTest {
             assertEquals("ROOM_READY " + code, o.read());
             assertEquals("ROOM_READY " + code, x.read());
             assertEquals(x.read(), o.read());
-            assertEquals("TURN X", x.read());
-            assertEquals("TURN X", o.read());
+            assertEquals("TURN X " + x.username, x.read());
+            assertEquals("TURN X " + x.username, o.read());
 
             // Simulate a write failure exactly when X's final move is broadcast.
             Field outputField = Room.class.getDeclaredField("firstOutput");
@@ -250,7 +250,7 @@ class RoomProtocolTest {
             x.send("MOVE 1 0 0 1");
             assertTrue(o.read().startsWith("MOVE_APPLIED "));
             assertTrue(o.read().startsWith("BOARD "));
-            assertEquals("TURN O", o.read());
+            assertEquals("TURN O " + o.username, o.read());
             assertEquals("GAME_OVER X RULES", o.read());
             assertEquals(1, resultCount("RULES"));
             assertEquals(0, resultCount("OPPONENT_DISCONNECTED"));
@@ -285,23 +285,25 @@ class RoomProtocolTest {
             assertEquals("GAME_OVER O RESIGNATION", first.o.read());
             assertEquals(1, resultCount("RESIGNATION"));
 
-            first.x.send("CREATE_ROOM");
-            String nextRoom = first.x.read();
+            // Swap seats in the rematch: usernames must follow the new X/O assignments.
+            first.o.send("CREATE_ROOM");
+            String nextRoom = first.o.read();
             assertTrue(nextRoom.startsWith("ROOM_CREATED "));
             String code = nextRoom.substring("ROOM_CREATED ".length());
-            assertEquals("PLAYER X", first.x.read());
-            first.o.send("JOIN_ROOM " + code);
-            assertEquals("ROOM_JOINED " + code, first.o.read());
-            assertEquals("PLAYER O", first.o.read());
+            assertEquals("PLAYER X", first.o.read());
+            first.x.send("JOIN_ROOM " + code);
+            assertEquals("ROOM_JOINED " + code, first.x.read());
+            assertEquals("PLAYER O", first.x.read());
             assertEquals("ROOM_READY " + code, first.o.read());
             assertEquals("ROOM_READY " + code, first.x.read());
             assertEquals(first.x.read(), first.o.read());
-            assertEquals("TURN X", first.x.read());
-            assertEquals("TURN X", first.o.read());
+            assertEquals("TURN X " + first.o.username, first.x.read());
+            assertEquals("TURN X " + first.o.username, first.o.read());
+            acceptedMove(new Match(first.o, first.x), 'X', "MOVE 5 0 4 1", 'O');
 
-            first.o.send("LEAVE_ROOM");
-            assertEquals("ROOM_LEFT", first.o.read());
-            assertEquals("GAME_OVER X OPPONENT_LEFT", first.x.read());
+            first.x.send("LEAVE_ROOM");
+            assertEquals("ROOM_LEFT", first.x.read());
+            assertEquals("GAME_OVER X OPPONENT_LEFT", first.o.read());
             assertEquals(1, resultCount("OPPONENT_LEFT"));
 
             first.x.send("CREATE_ROOM");
@@ -366,7 +368,7 @@ class RoomProtocolTest {
         assertEquals(firstTo.getCol(), continuation.getFrom().getCol());
     }
 
-    private String acceptedMove(Match match, char player, String request, String turn) throws IOException {
+    private String acceptedMove(Match match, char player, String request, char nextPlayer) throws IOException {
         Peer mover = player == 'X' ? match.x : match.o;
         Peer other = player == 'X' ? match.o : match.x;
         mover.send(request);
@@ -377,6 +379,7 @@ class RoomProtocolTest {
         String moverBoard = mover.read();
         assertTrue(moverBoard.startsWith("BOARD "));
         assertEquals(moverBoard, other.read());
+        String turn = "TURN " + nextPlayer + " " + (nextPlayer == 'X' ? match.x : match.o).username;
         assertEquals(turn, mover.read());
         assertEquals(turn, other.read());
         return moverBoard.substring("BOARD ".length());
@@ -401,8 +404,8 @@ class RoomProtocolTest {
             String board = x.read();
             assertTrue(board.startsWith("BOARD "));
             assertEquals(board, o.read());
-            assertEquals("TURN X", x.read());
-            assertEquals("TURN X", o.read());
+            assertEquals("TURN X " + x.username, x.read());
+            assertEquals("TURN X " + x.username, o.read());
             return new Match(x, o);
         } catch (Exception exception) {
             x.close();
@@ -414,8 +417,8 @@ class RoomProtocolTest {
     }
 
     private Peer connect() throws IOException {
-        Peer peer = new Peer(port);
         String username = "testplayer" + nextUsername.incrementAndGet();
+        Peer peer = new Peer(port, username);
         try {
             String encodedPassword = Base64.getEncoder().encodeToString(
                     "password123".getBytes(StandardCharsets.UTF_8));
@@ -500,11 +503,13 @@ class RoomProtocolTest {
     }
 
     private static class Peer implements AutoCloseable {
+        final String username;
         final Socket socket;
         final BufferedReader input;
         final PrintWriter output;
 
-        Peer(int port) throws IOException {
+        Peer(int port, String username) throws IOException {
+            this.username = username;
             socket = new Socket("127.0.0.1", port);
             socket.setSoTimeout(5000);
             input = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));

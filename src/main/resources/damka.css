@@ -15,12 +15,6 @@
     -fx-effect: dropshadow(gaussian, rgba(36, 62, 43, 0.12), 22, 0.1, 0, 5);
 }
 
-.profile-dialog {
-    -fx-font-family: "Segoe UI";
-    -fx-font-size: 13px;
-    -fx-background-color: #f7f6f1;
-}
-
 .profile-username {
     -fx-font-size: 22px;
     -fx-font-weight: bold;

@@ -72,12 +72,17 @@ class AuthProfileTest {
     @Test
     void unicodeLettersNumbersAndHyphensSurviveTheTcpAndDatabaseRoundTrip() throws Exception {
         String username = "علي_7-א";
-        try (Peer peer = connect()) {
+        String opponentUsername = "דנה_8-ب";
+        try (Peer peer = connect(); Peer opponent = connect()) {
             // The server trims only the outside whitespace, preserving the name itself.
             peer.send("SIGNUP   " + username + "  " + encodedPassword("password123"));
             assertEquals("AUTH_OK " + username, peer.read());
+            peer.username = username;
             assertNotNull(createdAt(username));
-            createRoom(peer);
+            signUp(opponent, opponentUsername);
+            joinRoom(peer, opponent, createRoom(peer));
+            moveAndCheckTurn(peer, opponent, "MOVE 5 0 4 1", "TURN O " + opponentUsername);
+            moveAndCheckTurn(opponent, peer, "MOVE 2 1 3 0", "TURN X " + username);
         }
     }
 
@@ -118,6 +123,8 @@ class AuthProfileTest {
             signUp(creator, "Alice");
             signUp(opponent, "alice");
             joinRoom(creator, opponent, createRoom(creator));
+            moveAndCheckTurn(creator, opponent, "MOVE 5 0 4 1", "TURN O alice");
+            moveAndCheckTurn(opponent, creator, "MOVE 2 1 3 0", "TURN X Alice");
             assertEquals(2, profileCount());
             assertNotNull(createdAt("Alice"));
             assertNotNull(createdAt("alice"));
@@ -157,6 +164,10 @@ class AuthProfileTest {
             assertEquals("AUTH_OK playerB", b.read());
             assertEquals("AUTH_OK playerC", c.read());
             assertEquals("AUTH_OK playerD", d.read());
+            a.username = "playerA";
+            b.username = "playerB";
+            c.username = "playerC";
+            d.username = "playerD";
             String firstCode = createRoom(a);
             String secondCode = createRoom(c);
             assertNotEquals(firstCode, secondCode);
@@ -334,11 +345,13 @@ class AuthProfileTest {
     private void signUp(Peer peer, String username) throws IOException {
         peer.send("SIGNUP " + username + " " + encodedPassword("password123"));
         assertEquals("AUTH_OK " + username, peer.read());
+        peer.username = username;
     }
 
     private void login(Peer peer, String username, String password) throws IOException {
         peer.send("LOGIN " + username + " " + encodedPassword(password));
         assertEquals("AUTH_OK " + username, peer.read());
+        peer.username = username;
     }
 
     private static String encodedPassword(String password) {
@@ -363,8 +376,20 @@ class AuthProfileTest {
         String board = creator.read();
         assertTrue(board.startsWith("BOARD "));
         assertEquals(board, opponent.read());
-        assertEquals("TURN X", creator.read());
-        assertEquals("TURN X", opponent.read());
+        assertEquals("TURN X " + creator.username, creator.read());
+        assertEquals("TURN X " + creator.username, opponent.read());
+    }
+
+    private void moveAndCheckTurn(Peer mover, Peer opponent, String request, String expectedTurn) throws IOException {
+        mover.send(request);
+        String move = mover.read();
+        assertTrue(move.startsWith("MOVE_APPLIED "));
+        assertEquals(move, opponent.read());
+        String board = mover.read();
+        assertTrue(board.startsWith("BOARD "));
+        assertEquals(board, opponent.read());
+        assertEquals(expectedTurn, mover.read());
+        assertEquals(expectedTurn, opponent.read());
     }
 
     private int profileCount() throws Exception {
@@ -426,6 +451,7 @@ class AuthProfileTest {
     }
 
     private static class Peer implements AutoCloseable {
+        private String username;
         private final Socket socket;
         private final BufferedReader input;
         private final PrintWriter output;
