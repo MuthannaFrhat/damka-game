@@ -94,11 +94,11 @@ The tests cover game rules, room messages over TCP, account authentication, and 
 
 ## Presentation
 
-The final presentation has 10 English slides with Hebrew speaker notes. The suggested schedule is 13.5 minutes including a three-minute demonstration, followed by 1.5 minutes for questions.
+The final presentation has 10 English slides with Hebrew speaker notes. The suggested schedule is 10.5 minutes of slides, a separate three-minute demonstration, and 1.5 minutes for questions. The demonstration is prepared separately and has no dedicated slide.
 
 - [Editable PowerPoint](docs/presentation/Damka_Presentation.pptx)
 - [Presentation PDF](docs/presentation/Damka_Presentation.pdf)
 - [Print handout: two slides per page, grayscale](docs/presentation/Damka_Handout_2up.pdf)
-- [Presenter notes and demo checklist (Hebrew)](docs/presentation/Presenter_Notes_HE.md)
+- [Presenter notes (Hebrew)](docs/presentation/Presenter_Notes_HE.md)
 
 In PowerPoint, open the Notes pane or Presenter View to see the speaking notes.
