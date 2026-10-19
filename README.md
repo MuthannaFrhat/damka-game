@@ -102,3 +102,7 @@ The final presentation has nine English slides with Hebrew speaker notes. The su
 - [Presenter notes (Hebrew)](docs/presentation/Presenter_Notes_HE.md)
 
 In PowerPoint, open the Notes pane or Presenter View to see the speaking notes.
+
+## Learn Minimax and Alpha–Beta
+
+A [separate self-study walkthrough](docs/presentation/minimax/README.md) explains a real board position using 16 English slides and an offline interactive stepper. It follows copied boards, turns, recursive calls, returned scores and pruning against the project’s actual game code.
