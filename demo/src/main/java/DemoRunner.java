@@ -6,6 +6,8 @@ import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextInputControl;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyCode;
@@ -90,8 +92,12 @@ public final class DemoRunner {
             await("room creation", () -> read(green.app(), "currentRoomCode") != null);
             pause(1400);
             clickField(green, "copyRoomButton");
+            String roomCode = fx(() -> (String) read(green.app(), "currentRoomCode"));
+            await("room code copied", () -> roomCode.equals(Clipboard.getSystemClipboard().getString()));
             clickField(red, "roomCodeField");
+            await("room field focus", () -> ((Node) read(red.app(), "roomCodeField")).isFocused());
             shortcut(KeyCode.V);
+            await("room code pasted", () -> roomCode.equals(((TextInputControl) read(red.app(), "roomCodeField")).getText()));
             pause(700);
             clickField(red, "joinRoomButton");
             await("both players ready", () -> read(green.app(), "serverTurn").equals('X')
@@ -193,16 +199,31 @@ public final class DemoRunner {
     }
 
     private void signUp(Client client) throws Exception {
-        click(client, "#accountSignupTab");
+        // On Windows, the first native click can activate a window without its control.
+        for (int attempt = 0; attempt < 3 && !fx(() -> signupSelected(client)); attempt++) {
+            click(client, "#accountSignupTab");
+            pause(250);
+        }
+        await(client.username() + " Create account tab", () -> signupSelected(client));
         enter(client, "#accountUsername", client.username());
         enter(client, "#accountPassword", PASSWORD);
         enter(client, "#accountConfirmPassword", PASSWORD);
         pause(800);
+        if (!fx(() -> signupSelected(client))) {
+            throw new IllegalStateException("The demo account form left Create account mode before submission.");
+        }
         click(client, "#accountSubmit");
         await(client.username() + " authentication", () -> client.username().equals(read(client.app(), "authenticatedUsername"))
                 && read(client.app(), "boardView") != null);
         fx(() -> { arrange(client); return null; });
         pause(1300);
+    }
+
+    private static boolean signupSelected(Client client) {
+        Node tab = lookup(client.stage(), "#accountSignupTab");
+        Node confirmation = lookup(client.stage(), "#accountConfirmPassword");
+        return tab instanceof ToggleButton button && button.isSelected()
+                && confirmation != null && visibleInWindow(confirmation);
     }
 
     private void playOnlineMatch(Client green, Client red) throws Exception {
@@ -310,6 +331,7 @@ public final class DemoRunner {
 
     private void enter(Client client, String selector, String text) throws Exception {
         click(client, selector);
+        await("input focus " + selector, () -> lookup(client.stage(), selector).isFocused());
         fx(() -> {
             ClipboardContent content = new ClipboardContent();
             content.putString(text);
@@ -318,6 +340,8 @@ public final class DemoRunner {
         });
         shortcut(KeyCode.A);
         shortcut(KeyCode.V);
+        // Check the result of native paste without printing password contents.
+        await("input entered " + selector, () -> text.equals(((TextInputControl) lookup(client.stage(), selector)).getText()));
         pause(350);
     }
 
@@ -338,29 +362,62 @@ public final class DemoRunner {
     }
 
     private void clickNode(Client client, Callable<Node> target) throws Exception {
-        Point2D end = fx(() -> {
-            client.stage().toFront();
-            client.stage().requestFocus();
-            client.stage().getScene().getRoot().applyCss();
-            client.stage().getScene().getRoot().layout();
-            Node node = target.call();
-            if (node == null || node.isDisabled() || !node.isVisible()) {
-                throw new IllegalStateException("Demo control is missing, hidden or disabled.");
-            }
-            Bounds bounds = node.localToScreen(node.getBoundsInLocal());
-            if (bounds == null) throw new IllegalStateException("Demo control is not on screen.");
-            return new Point2D((bounds.getMinX() + bounds.getMaxX()) / 2, (bounds.getMinY() + bounds.getMaxY()) / 2);
-        });
+        focusClient(client);
+        Point2D end = fx(() -> targetCenter(client, target.call()));
         Point2D start = fx(() -> robot.getMousePosition());
         for (int step = 1; step <= 8; step++) {
             double progress = step / 8.0;
             fx(() -> { robot.mouseMove(start.interpolate(end, progress)); return null; });
             pause(18);
         }
+        // Activation, hover and form layout can move controls during the glide.
+        fx(() -> { robot.mouseMove(targetCenter(client, target.call())); return null; });
+        pause(70);
         fx(() -> { robot.mousePress(MouseButton.PRIMARY); return null; });
         pause(70);
         fx(() -> { robot.mouseRelease(MouseButton.PRIMARY); return null; });
         pause(130);
+    }
+
+    private void focusClient(Client client) throws Exception {
+        if (fx(() -> client.stage().isFocused())) return;
+        fx(() -> { client.stage().toFront(); client.stage().requestFocus(); return null; });
+        // Native window activation must settle even during a fast rehearsal.
+        Thread.sleep(200);
+        if (!fx(() -> client.stage().isFocused())) {
+            // A real title-bar click also works when Windows declines requestFocus().
+            fx(() -> {
+                robot.mouseMove(client.stage().getX() + client.stage().getWidth() / 2,
+                        client.stage().getY() + 12);
+                robot.mousePress(MouseButton.PRIMARY);
+                return null;
+            });
+            Thread.sleep(80);
+            fx(() -> { robot.mouseRelease(MouseButton.PRIMARY); return null; });
+        }
+        await(client.username() + " window focus", () -> client.stage().isFocused());
+        Thread.sleep(150);
+    }
+
+    private static Point2D targetCenter(Client client, Node node) {
+        client.stage().getScene().getRoot().applyCss();
+        client.stage().getScene().getRoot().layout();
+        if (node == null || node.isDisabled() || !visibleInWindow(node)) {
+            throw new IllegalStateException("Demo control is missing, hidden or disabled.");
+        }
+        Bounds bounds = node.localToScreen(node.getBoundsInLocal());
+        if (bounds == null || bounds.getWidth() <= 0 || bounds.getHeight() <= 0) {
+            throw new IllegalStateException("Demo control is not on screen.");
+        }
+        return new Point2D((bounds.getMinX() + bounds.getMaxX()) / 2, (bounds.getMinY() + bounds.getMaxY()) / 2);
+    }
+
+    private static boolean visibleInWindow(Node node) {
+        if (node.getScene() == null || !node.getScene().getWindow().isShowing()) return false;
+        for (Node ancestor = node; ancestor != null; ancestor = ancestor.getParent()) {
+            if (!ancestor.isVisible()) return false;
+        }
+        return true;
     }
 
     private void shortcut(KeyCode code) throws Exception {
@@ -374,8 +431,13 @@ public final class DemoRunner {
     }
 
     private void chapter(String title, String detail) throws Exception {
-        System.out.println(title + " — " + detail);
+        // Keep console logs readable with Windows terminal encodings; captions keep Unicode.
+        System.out.println(consoleText(title) + " - " + consoleText(detail));
         fx(() -> { chapter.setText(title); explanation.setText(detail); return null; });
+    }
+
+    private static String consoleText(String text) {
+        return text.replace('·', '-').replace('—', '-').replace('–', '-');
     }
 
     private void allowEscape(Scene scene) {
@@ -402,6 +464,12 @@ public final class DemoRunner {
                 Node error = lookup(client.stage(), "#accountError");
                 if (error instanceof Label label && !label.getText().isBlank()) {
                     messages.append(" ").append(client.username()).append(": ").append(label.getText());
+                }
+                Node tab = lookup(client.stage(), "#accountSignupTab");
+                if (tab instanceof ToggleButton button) {
+                    messages.append(" [").append(client.username()).append(" mode=")
+                            .append(button.isSelected() ? "signup" : "login")
+                            .append(", windowFocused=").append(client.stage().isFocused()).append("]");
                 }
             }
             return messages.toString();
