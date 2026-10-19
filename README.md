@@ -79,6 +79,12 @@ Usernames are case-sensitive. Passwords are stored as salted hashes. Accounts an
 
 Online results are validated and recorded by the server. BOT moves are calculated locally, and completed results are reported to the server for the logged-in account. Signing out or disconnecting ends the current BOT session; unfinished games are not recorded or resumed after login.
 
+## Automated demo video
+
+Open the [recorded demo (MP4)](docs/demo/Damka_Demo.mp4): a 2-minute walkthrough at 1920 × 1080, including a complete online win, saved profiles and Hard BOT play.
+
+Run `.\gradlew.bat demo` on Windows to record a complete online win, saved profiles and Hard BOT play. See the [demo instructions](demo/README.md) for FFmpeg installation, output files and rehearsal options.
+
 ## Tests
 
 ```powershell

@@ -44,3 +44,6 @@ bin/
 *.db-wal
 *.db-shm
 *.db-journal
+
+### Generated demo recordings and disposable accounts ###
+/demo/output/

@@ -55,3 +55,31 @@ tasks.register('tcpServer', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'DamkaServer'
 }
+
+// Optional demo tools are compiled separately from the game and its tests.
+sourceSets {
+    demo {
+        java.srcDir 'demo/src/main/java'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    demoImplementation.extendsFrom implementation
+    demoRuntimeOnly.extendsFrom runtimeOnly
+}
+
+tasks.register('demo', JavaExec) {
+    group = 'application'
+    description = 'Play and record the automated JavaFX demonstration (requires FFmpeg).'
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'DemoRunner'
+    // Keep Robot and Windows desktop capture in the same pixel coordinates.
+    jvmArgs '-Dglass.win.uiScale=100%'
+    systemProperty 'javafx.cachedir', layout.buildDirectory.dir('javafx-cache').get().asFile.path
+    systemProperty 'damka.demo.record', project.findProperty('demoRecord') ?: 'true'
+    systemProperty 'damka.demo.speed', project.findProperty('demoSpeed') ?: '1'
+    systemProperty 'damka.demo.output', project.findProperty('demoOutput') ?: 'demo/output'
+    systemProperty 'damka.demo.ffmpeg', project.findProperty('ffmpeg') ?: 'ffmpeg'
+}
