@@ -203,8 +203,8 @@ class RoomProtocolTest {
                 assertEquals("BOARD " + promotedBoard, o.read());
                 assertEquals("TURN O " + o.username, x.read());
                 assertEquals("TURN O " + o.username, o.read());
-                assertEquals("GAME_OVER X RULES", x.read());
-                assertEquals("GAME_OVER X RULES", o.read());
+                assertEquals("GAME_OVER X RULES " + x.username, x.read());
+                assertEquals("GAME_OVER X RULES " + x.username, o.read());
                 assertEquals(1, resultCount("RULES"));
 
                 o.send("MOVE 7 7 6 6");
@@ -251,7 +251,7 @@ class RoomProtocolTest {
             assertTrue(o.read().startsWith("MOVE_APPLIED "));
             assertTrue(o.read().startsWith("BOARD "));
             assertEquals("TURN O " + o.username, o.read());
-            assertEquals("GAME_OVER X RULES", o.read());
+            assertEquals("GAME_OVER X RULES " + x.username, o.read());
             assertEquals(1, resultCount("RULES"));
             assertEquals(0, resultCount("OPPONENT_DISCONNECTED"));
         }
@@ -265,8 +265,8 @@ class RoomProtocolTest {
                 statement.executeUpdate();
             }
             match.x.send("RESIGN");
-            assertEquals("GAME_OVER O RESIGNATION", match.x.read());
-            assertEquals("GAME_OVER O RESIGNATION", match.o.read());
+            assertEquals("GAME_OVER O RESIGNATION " + match.o.username, match.x.read());
+            assertEquals("GAME_OVER O RESIGNATION " + match.o.username, match.o.read());
             assertEquals("RESULT_ERROR The match ended, but its result could not be saved.", match.x.read());
             assertEquals("RESULT_ERROR The match ended, but its result could not be saved.", match.o.read());
             match.x.send("MOVE 5 0 4 1");
@@ -281,8 +281,9 @@ class RoomProtocolTest {
     void resignationAndLeavingAllowTheSameSocketsToRematch() throws Exception {
         try (Match first = openMatch()) {
             first.x.send("RESIGN");
-            assertEquals("GAME_OVER O RESIGNATION", first.x.read());
-            assertEquals("GAME_OVER O RESIGNATION", first.o.read());
+            // O has not had a turn yet, but the server already knows the winner's username.
+            assertEquals("GAME_OVER O RESIGNATION " + first.o.username, first.x.read());
+            assertEquals("GAME_OVER O RESIGNATION " + first.o.username, first.o.read());
             assertEquals(1, resultCount("RESIGNATION"));
 
             // Swap seats in the rematch: usernames must follow the new X/O assignments.
@@ -303,7 +304,7 @@ class RoomProtocolTest {
 
             first.x.send("LEAVE_ROOM");
             assertEquals("ROOM_LEFT", first.x.read());
-            assertEquals("GAME_OVER X OPPONENT_LEFT", first.o.read());
+            assertEquals("GAME_OVER X OPPONENT_LEFT " + first.o.username, first.o.read());
             assertEquals(1, resultCount("OPPONENT_LEFT"));
 
             first.x.send("CREATE_ROOM");
@@ -311,6 +312,21 @@ class RoomProtocolTest {
             assertTrue(thirdRoom.startsWith("ROOM_CREATED "));
             assertEquals("PLAYER X", first.x.read());
             assertEquals(2, resultCount(null));
+
+            // Now the creator leaves: the second player's username must be announced instead.
+            String thirdCode = thirdRoom.substring("ROOM_CREATED ".length());
+            first.o.send("JOIN_ROOM " + thirdCode);
+            assertEquals("ROOM_JOINED " + thirdCode, first.o.read());
+            assertEquals("PLAYER O", first.o.read());
+            assertEquals("ROOM_READY " + thirdCode, first.x.read());
+            assertEquals("ROOM_READY " + thirdCode, first.o.read());
+            assertEquals(first.x.read(), first.o.read());
+            assertEquals("TURN X " + first.x.username, first.x.read());
+            assertEquals("TURN X " + first.x.username, first.o.read());
+            first.x.send("LEAVE_ROOM");
+            assertEquals("ROOM_LEFT", first.x.read());
+            assertEquals("GAME_OVER O OPPONENT_LEFT " + first.o.username, first.o.read());
+            assertEquals(3, resultCount(null));
         }
     }
 
@@ -318,12 +334,20 @@ class RoomProtocolTest {
     void opponentDisconnectProducesAResultAndLeavesTheOtherSocketUsable() throws Exception {
         try (Match match = openMatch()) {
             match.o.close();
-            assertEquals("GAME_OVER X OPPONENT_DISCONNECTED", match.x.read());
+            assertEquals("GAME_OVER X OPPONENT_DISCONNECTED " + match.x.username, match.x.read());
             assertEquals(1, resultCount("OPPONENT_DISCONNECTED"));
 
             match.x.send("CREATE_ROOM");
             assertTrue(match.x.read().startsWith("ROOM_CREATED "));
             assertEquals("PLAYER X", match.x.read());
+        }
+        try (Match match = openMatch()) {
+            match.x.close();
+            assertEquals("GAME_OVER O OPPONENT_DISCONNECTED " + match.o.username, match.o.read());
+            assertEquals(2, resultCount("OPPONENT_DISCONNECTED"));
+            match.o.send("CREATE_ROOM");
+            assertTrue(match.o.read().startsWith("ROOM_CREATED "));
+            assertEquals("PLAYER X", match.o.read());
         }
     }
 

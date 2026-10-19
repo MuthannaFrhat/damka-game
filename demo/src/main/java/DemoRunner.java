@@ -5,6 +5,7 @@ import javafx.geometry.Rectangle2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextInputControl;
 import javafx.scene.control.ToggleButton;
@@ -253,12 +254,23 @@ public final class DemoRunner {
         }
         await("rules winner in both windows", () -> (boolean) read(green.app(), "gameOver")
                 && (boolean) read(red.app(), "gameOver"));
-        chapter("Green wins by the game rules", "The normal starting board was played to completion, including captures and promotion.");
+        chapter(green.username() + " wins!", "The normal starting board was played to completion, including captures and promotion.");
         pause(3000);
+        dismissMatchResult(green);
+        dismissMatchResult(red);
+    }
+
+    private void dismissMatchResult(Client client) throws Exception {
+        Alert result = fx(() -> (Alert) read(client.app(), "matchResultDialog"));
+        if (result != null && fx(result::isShowing)) {
+            clickNode(client, () -> result.getDialogPane().lookup("#matchResultOk"));
+            await("result window closed", () -> !result.isShowing());
+        }
     }
 
     private void showProfiles(Client green, Client red) throws Exception {
-        chapter("5 · Results saved to player profiles", "Green: one online win. Red: one online loss. Both histories contain this match.");
+        chapter("5 · Results saved to player profiles", green.username() + ": one online win. "
+                + red.username() + ": one online loss. Both histories contain this match.");
         for (Client client : clients) {
             clickField(client, "profileButton");
             await("profile " + client.username(), () -> read(client.app(), "profileWindow") != null
@@ -362,8 +374,9 @@ public final class DemoRunner {
     }
 
     private void clickNode(Client client, Callable<Node> target) throws Exception {
-        focusClient(client);
-        Point2D end = fx(() -> targetCenter(client, target.call()));
+        Stage window = fx(() -> (Stage) target.call().getScene().getWindow());
+        focusWindow(window, client.username());
+        Point2D end = fx(() -> targetCenter(window, target.call()));
         Point2D start = fx(() -> robot.getMousePosition());
         for (int step = 1; step <= 8; step++) {
             double progress = step / 8.0;
@@ -371,7 +384,7 @@ public final class DemoRunner {
             pause(18);
         }
         // Activation, hover and form layout can move controls during the glide.
-        fx(() -> { robot.mouseMove(targetCenter(client, target.call())); return null; });
+        fx(() -> { robot.mouseMove(targetCenter(window, target.call())); return null; });
         pause(70);
         fx(() -> { robot.mousePress(MouseButton.PRIMARY); return null; });
         pause(70);
@@ -379,29 +392,28 @@ public final class DemoRunner {
         pause(130);
     }
 
-    private void focusClient(Client client) throws Exception {
-        if (fx(() -> client.stage().isFocused())) return;
-        fx(() -> { client.stage().toFront(); client.stage().requestFocus(); return null; });
+    private void focusWindow(Stage window, String username) throws Exception {
+        if (fx(window::isFocused)) return;
+        fx(() -> { window.toFront(); window.requestFocus(); return null; });
         // Native window activation must settle even during a fast rehearsal.
         Thread.sleep(200);
-        if (!fx(() -> client.stage().isFocused())) {
+        if (!fx(window::isFocused)) {
             // A real title-bar click also works when Windows declines requestFocus().
             fx(() -> {
-                robot.mouseMove(client.stage().getX() + client.stage().getWidth() / 2,
-                        client.stage().getY() + 12);
+                robot.mouseMove(window.getX() + window.getWidth() / 2, window.getY() + 12);
                 robot.mousePress(MouseButton.PRIMARY);
                 return null;
             });
             Thread.sleep(80);
             fx(() -> { robot.mouseRelease(MouseButton.PRIMARY); return null; });
         }
-        await(client.username() + " window focus", () -> client.stage().isFocused());
+        await(username + " window focus", window::isFocused);
         Thread.sleep(150);
     }
 
-    private static Point2D targetCenter(Client client, Node node) {
-        client.stage().getScene().getRoot().applyCss();
-        client.stage().getScene().getRoot().layout();
+    private static Point2D targetCenter(Stage window, Node node) {
+        window.getScene().getRoot().applyCss();
+        window.getScene().getRoot().layout();
         if (node == null || node.isDisabled() || !visibleInWindow(node)) {
             throw new IllegalStateException("Demo control is missing, hidden or disabled.");
         }

@@ -83,6 +83,9 @@ class AuthProfileTest {
             joinRoom(peer, opponent, createRoom(peer));
             moveAndCheckTurn(peer, opponent, "MOVE 5 0 4 1", "TURN O " + opponentUsername);
             moveAndCheckTurn(opponent, peer, "MOVE 2 1 3 0", "TURN X " + username);
+            peer.send("RESIGN");
+            assertEquals("GAME_OVER O RESIGNATION " + opponentUsername, peer.read());
+            assertEquals("GAME_OVER O RESIGNATION " + opponentUsername, opponent.read());
         }
     }
 
@@ -125,6 +128,9 @@ class AuthProfileTest {
             joinRoom(creator, opponent, createRoom(creator));
             moveAndCheckTurn(creator, opponent, "MOVE 5 0 4 1", "TURN O alice");
             moveAndCheckTurn(opponent, creator, "MOVE 2 1 3 0", "TURN X Alice");
+            opponent.send("RESIGN");
+            assertEquals("GAME_OVER X RESIGNATION Alice", creator.read());
+            assertEquals("GAME_OVER X RESIGNATION Alice", opponent.read());
             assertEquals(2, profileCount());
             assertNotNull(createdAt("Alice"));
             assertNotNull(createdAt("alice"));
@@ -227,8 +233,8 @@ class AuthProfileTest {
             joinRoom(alice, bob, code);
             assertEquals(emptyProfile, requestProfile(alice));
             alice.send("RESIGN");
-            assertEquals("GAME_OVER O RESIGNATION", alice.read());
-            assertEquals("GAME_OVER O RESIGNATION", bob.read());
+            assertEquals("GAME_OVER O RESIGNATION Bob", alice.read());
+            assertEquals("GAME_OVER O RESIGNATION Bob", bob.read());
             ProfileData finishedProfile = requestProfile(alice);
             assertNotEquals(emptyProfile, finishedProfile);
             assertEquals(new ProfileData.Stats(1, 0, 1), finishedProfile.online());

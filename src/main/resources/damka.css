@@ -21,6 +21,28 @@
     -fx-text-fill: #234b3c;
 }
 
+.match-result {
+    -fx-font-size: 16px;
+}
+
+.match-result .header-panel {
+    -fx-background-color: #e8eee4;
+}
+
+.match-result .header-panel .label {
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #234b3c;
+}
+
+.match-result.red-result .header-panel {
+    -fx-background-color: #fbe9e3;
+}
+
+.match-result.red-result .header-panel .label {
+    -fx-text-fill: #9c3c30;
+}
+
 .account-tabs .toggle-button {
     -fx-background-color: #e9eee6;
     -fx-text-fill: #527460;

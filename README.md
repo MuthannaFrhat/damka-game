@@ -81,7 +81,7 @@ Online results are validated and recorded by the server. BOT moves are calculate
 
 ## Automated demo video
 
-Open the [recorded demo (MP4)](docs/demo/Damka_Demo.mp4): a 2-minute walkthrough at 1920 × 1080, including a complete online win, saved profiles and Hard BOT play.
+Open the [recorded demo (MP4)](docs/demo/Damka_Demo.mp4): a short walkthrough at 1920 × 1080, including a complete online win, a clear winner dialog, saved profiles and Hard BOT play.
 
 Run `.\gradlew.bat demo` on Windows to record a complete online win, saved profiles and Hard BOT play. See the [demo instructions](demo/README.md) for FFmpeg installation, output files and rehearsal options.
 

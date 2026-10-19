@@ -7,7 +7,10 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.control.Button;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.input.Clipboard;
@@ -19,6 +22,7 @@ import javafx.geometry.Rectangle2D;
 import javafx.scene.control.ScrollPane;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
+import javafx.stage.Modality;
 
 import java.util.ArrayDeque;
 import java.util.Queue;
@@ -33,6 +37,7 @@ public class DamkaFX extends Application {
     private Stage primaryStage;
     private AccountView accountView;
     private ProfileWindow profileWindow;
+    private Alert matchResultDialog;
     private Button accountButton;
     private Button profileButton;
     private boolean authRequestPending;
@@ -90,6 +95,7 @@ public class DamkaFX extends Application {
     }
 
     private void showAccountScreen(String message) {
+        if (matchResultDialog != null) matchResultDialog.close();
         closeConnection();
         if (boardView != null) {
             isOnlineMode = true;
@@ -916,8 +922,8 @@ public class DamkaFX extends Application {
     }
 
     private void handleGameOver(String message) {
-        String[] fields = message.trim().split("\\s+");
-        if (fields.length < 3) {
+        String[] fields = message.trim().split("\\s+", 4);
+        if (fields.length < 4) {
             showStatus("The server ended the match.");
             gameOver = true;
             return;
@@ -925,26 +931,48 @@ public class DamkaFX extends Application {
 
         char winner = fields[1].charAt(0);
         String reason = fields[2];
+        String winnerName = fields[3];
         gameOver = true;
         isInRoom = false;
         resignRequestPending = false;
         moveRequestPending = false;
         selectedPosition = null;
-        String winnerColor = playerColorName(winner);
-        matchStatusLabel.setText(winnerColor + " wins");
+        matchStatusLabel.setText(winnerName + " wins");
         showTurnStatus("Match finished");
         drawBoard();
         if ("RESIGNATION".equals(reason)) {
             showStatus(myPlayerColor != null && winner == myPlayerColor.charAt(0)
-                    ? "You win by resignation." : "You resigned. " + winnerColor + " wins.");
+                    ? "You win by resignation." : "You resigned. " + winnerName + " wins.");
         } else if ("OPPONENT_LEFT".equals(reason)) {
             showStatus("Opponent left. You win.");
         } else if ("OPPONENT_DISCONNECTED".equals(reason)) {
             showStatus("Opponent disconnected. You win.");
         } else {
-            showStatus(winnerColor + " wins by game rules.");
+            showStatus(winnerName + " wins by game rules.");
         }
         refreshProfile();
+        showMatchResult(winner, winnerName, connectionStatusLabel.getText());
+    }
+
+    private void showMatchResult(char winner, String winnerName, String detail) {
+        if (matchResultDialog != null) matchResultDialog.close();
+        matchResultDialog = new Alert(Alert.AlertType.INFORMATION);
+        matchResultDialog.initOwner(primaryStage);
+        matchResultDialog.initModality(Modality.WINDOW_MODAL);
+        matchResultDialog.setTitle("Match finished - " + authenticatedUsername);
+        matchResultDialog.setHeaderText(winnerName + " wins!");
+        matchResultDialog.setContentText(detail);
+        matchResultDialog.setGraphic(null);
+        DialogPane pane = matchResultDialog.getDialogPane();
+        pane.setId("matchResultDialog");
+        pane.setPrefWidth(420);
+        pane.getStylesheets().add(getClass().getResource("/damka.css").toExternalForm());
+        pane.getStyleClass().addAll("app-root", "match-result");
+        if (winner == 'O') pane.getStyleClass().add("red-result");
+        Button ok = (Button) pane.lookupButton(ButtonType.OK);
+        ok.setId("matchResultOk");
+        ok.getStyleClass().add("primary-button");
+        matchResultDialog.show();
     }
 
     private void resetOnlineRoom() {
@@ -981,6 +1009,7 @@ public class DamkaFX extends Application {
     @Override
     public void stop() {
         applicationClosing = true;
+        if (matchResultDialog != null) matchResultDialog.close();
         if (boardView != null) {
             boardView.stopAnimation();
         }
@@ -997,12 +1026,14 @@ public class DamkaFX extends Application {
             gameOver = true;
             selectedPosition = null;
             drawBoard();
+            String winnerName = winner == 'X' ? authenticatedUsername : "BOT";
             String result = winner == 'X' ? "You win!" : "BOT wins.";
-            matchStatusLabel.setText(result);
+            matchStatusLabel.setText(winnerName + " wins");
             showTurnStatus("Match finished");
             showStatus(result);
             recordBotResult();
             updateControls();
+            showMatchResult(winner, winnerName, result);
             return;
         }
 

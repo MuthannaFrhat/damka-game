@@ -2,7 +2,7 @@
 
 Run one command to open the real game, complete an online match and demonstrate the Hard BOT. The demo uses JavaFX Robot for mouse clicks and keyboard input, and FFmpeg for MP4 recording.
 
-A [pre-recorded sample](../docs/demo/Damka_Demo.mp4) is included in the repository: **2 minutes 7 seconds**, **1920 × 1080**, approximately **2.1 MB**. You can play that MP4 directly without installing FFmpeg.
+A [pre-recorded sample](../docs/demo/Damka_Demo.mp4) is included in the repository at **1920 × 1080**. It shows the winner's username in a clear result window. You can play that MP4 directly without installing FFmpeg.
 
 ## Run on Windows
 
@@ -45,7 +45,7 @@ explorer .\demo\output
 1. A server and two real JavaFX client windows.
 2. Account creation for `GreenPlayer` and `RedPlayer`.
 3. Creating a room, copying its code and joining from the other window.
-4. A complete **39-move online match** from the normal starting board, including captures, capture chains and promotion. Green wins under the game rules.
+4. A complete **39-move online match** from the normal starting board, including captures, capture chains and promotion. The result window announces **GreenPlayer wins!**; the Robot clicks OK to continue.
 5. The saved win, loss and match history in both profiles.
 6. A fresh **Hard BOT** match, with eight human moves and the BOT's actual responses using Minimax depth 3.
 

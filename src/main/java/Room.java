@@ -262,12 +262,12 @@ public class Room {
                 firstOutput.println("ROOM_LEFT");
                 if (secondOutput != null) {
                     recordResult('O', "OPPONENT_LEFT");
-                    secondOutput.println("GAME_OVER O OPPONENT_LEFT");
+                    secondOutput.println(gameOverMessage('O', "OPPONENT_LEFT"));
                 }
             } else {
                 secondOutput.println("ROOM_LEFT");
                 recordResult('X', "OPPONENT_LEFT");
-                firstOutput.println("GAME_OVER X OPPONENT_LEFT");
+                firstOutput.println(gameOverMessage('X', "OPPONENT_LEFT"));
             }
             notifyResultSaveFailure();
         }
@@ -305,12 +305,18 @@ public class Room {
     }
 
     private void broadcastGameOver(char winner, String reason) {
-        String message = "GAME_OVER " + winner + " " + reason;
+        String message = gameOverMessage(winner, reason);
         firstOutput.println(message);
         if (secondOutput != null) {
             secondOutput.println(message);
         }
         notifyResultSaveFailure();
+    }
+
+    private String gameOverMessage(char winner, String reason) {
+        char winnerSymbol = Character.toUpperCase(winner);
+        String winnerUsername = winnerSymbol == 'X' ? firstUsername : secondUsername;
+        return "GAME_OVER " + winnerSymbol + " " + reason + " " + winnerUsername;
     }
 
     private void notifyResultSaveFailure() {
