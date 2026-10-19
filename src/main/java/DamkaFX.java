@@ -264,9 +264,10 @@ public class DamkaFX extends Application {
     private HBox buildHeader() {
         Label title = new Label("damka");
         title.getStyleClass().add("app-title");
-        Label subtitle = new Label("A classic game. A fresh challenge.");
-        subtitle.getStyleClass().add("app-subtitle");
-        VBox brand = new VBox(4, title, subtitle);
+        Label accountIdentity = new Label("Signed in as " + authenticatedUsername);
+        accountIdentity.setId("accountIdentity");
+        accountIdentity.getStyleClass().add("app-subtitle");
+        VBox brand = new VBox(4, title, accountIdentity);
         Pane space = new Pane();
         HBox.setHgrow(space, Priority.ALWAYS);
         Label badge = new Label("CHECKERS CLUB");
