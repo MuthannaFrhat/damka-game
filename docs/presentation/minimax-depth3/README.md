@@ -2,6 +2,8 @@
 
 A compact presentation example showing how eight leaf scores determine the BOT’s first move. All scores use the BOT’s perspective: a larger score is better for the BOT.
 
+The clean tree keeps its title, node labels, and scores. Explanations and assumptions are in this README and the PowerPoint speaker notes.
+
 - [Main tree PNG](Minimax_Depth3_Diagram.png)
 - [Matching eight-row table PNG](Minimax_Depth3_Table.png)
 - [Two-page PDF: tree and table](Minimax_Depth3_Example.pdf)
