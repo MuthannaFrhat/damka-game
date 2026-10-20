@@ -111,4 +111,6 @@ In PowerPoint, open the Notes pane or Presenter View to see the speaking notes.
 
 ## Learn Minimax and Alpha–Beta
 
+A [two-slide depth-3 example](docs/presentation/minimax-depth3/README.md) shows BOT → human → BOT, the returned scores, and how `findBestMove()` selects the first move. It includes an editable PowerPoint, PDF, diagram and matching table.
+
 A [separate self-study walkthrough](docs/presentation/minimax/README.md) explains a real board position using 16 English slides and an offline interactive stepper. It follows copied boards, turns, recursive calls, returned scores and pruning against the project’s actual game code.
