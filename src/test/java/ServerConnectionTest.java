@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class RoomConnectionTest {
+class ServerConnectionTest {
     @Test
     void sendsInitialRequestAndCommandsInOrderAndReceivesReplies() throws Exception {
         try (ServerSocket server = new ServerSocket(0)) {
@@ -45,7 +45,7 @@ class RoomConnectionTest {
             peer.setDaemon(true);
             peer.start();
 
-            try (RoomConnection connection = new RoomConnection("localhost", server.getLocalPort(), events)) {
+            try (ServerConnection connection = new ServerConnection("localhost", server.getLocalPort(), events)) {
                 connection.connect("CREATE_ROOM");
                 assertEquals("CONNECTED", events.next());
                 assertEquals("CREATE_ROOM", requests.poll(2, TimeUnit.SECONDS));
@@ -72,7 +72,7 @@ class RoomConnectionTest {
             unavailablePort = reservation.getLocalPort();
         }
         Events events = new Events();
-        try (RoomConnection connection = new RoomConnection("localhost", unavailablePort, events)) {
+        try (ServerConnection connection = new ServerConnection("localhost", unavailablePort, events)) {
             connection.connect("CREATE_ROOM");
             assertTrue(events.next().startsWith("DISCONNECTED "));
             assertEquals(1, events.disconnects.get());
@@ -84,7 +84,7 @@ class RoomConnectionTest {
     void intentionalCloseUnblocksReaderWithoutReportingFailure() throws Exception {
         try (ServerSocket server = new ServerSocket(0)) {
             Events events = new Events();
-            RoomConnection connection = new RoomConnection("localhost", server.getLocalPort(), events);
+            ServerConnection connection = new ServerConnection("localhost", server.getLocalPort(), events);
             try {
                 connection.connect("CREATE_ROOM");
                 try (Socket socket = server.accept()) {
@@ -108,7 +108,7 @@ class RoomConnectionTest {
     void closeBeforeStartCannotOpenALateConnection() throws Exception {
         try (ServerSocket server = new ServerSocket(0)) {
             Events events = new Events();
-            RoomConnection connection = new RoomConnection("localhost", server.getLocalPort(), events);
+            ServerConnection connection = new ServerConnection("localhost", server.getLocalPort(), events);
             connection.close();
             connection.connect("CREATE_ROOM");
             server.setSoTimeout(100);
@@ -122,10 +122,10 @@ class RoomConnectionTest {
         return new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
     }
 
-    private static class Events implements RoomConnection.Listener {
+    private static class Events implements ServerConnection.Listener {
         final BlockingQueue<String> messages = new LinkedBlockingQueue<>();
         final AtomicInteger disconnects = new AtomicInteger();
-        final AtomicReference<RoomConnection> source = new AtomicReference<>();
+        final AtomicReference<ServerConnection> source = new AtomicReference<>();
 
         String next() throws Exception {
             String message = messages.poll(2, TimeUnit.SECONDS);
@@ -134,19 +134,19 @@ class RoomConnectionTest {
         }
 
         @Override
-        public void onConnected(RoomConnection connection) {
+        public void onConnected(ServerConnection connection) {
             source.set(connection);
             messages.add("CONNECTED");
         }
 
         @Override
-        public void onMessage(RoomConnection connection, String message) {
+        public void onMessage(ServerConnection connection, String message) {
             source.set(connection);
             messages.add(message);
         }
 
         @Override
-        public void onDisconnected(RoomConnection connection, String detail) {
+        public void onDisconnected(ServerConnection connection, String detail) {
             source.set(connection);
             disconnects.incrementAndGet();
             messages.add("DISCONNECTED " + detail);

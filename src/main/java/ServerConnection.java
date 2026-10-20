@@ -12,11 +12,11 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Transfers text messages. The game protocol and JavaFX controls belong elsewhere. */
-public final class RoomConnection implements AutoCloseable {
+public final class ServerConnection implements AutoCloseable {
     public interface Listener {
-        void onConnected(RoomConnection connection);
-        void onMessage(RoomConnection connection, String message);
-        void onDisconnected(RoomConnection connection, String detail);
+        void onConnected(ServerConnection connection);
+        void onMessage(ServerConnection connection, String message);
+        void onDisconnected(ServerConnection connection, String detail);
     }
 
     private final String host;
@@ -35,7 +35,7 @@ public final class RoomConnection implements AutoCloseable {
         return thread;
     });
 
-    public RoomConnection(String host, int port, Listener listener) {
+    public ServerConnection(String host, int port, Listener listener) {
         this.host = host;
         this.port = port;
         this.listener = listener;

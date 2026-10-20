@@ -72,7 +72,7 @@ public class DamkaFX extends Application {
     private Label playerColorLabel;
     private String myPlayerColor;
     // Online state: one connection, a display snapshot, and pending request flags.
-    private RoomConnection activeRoomConnection;
+    private ServerConnection activeServerConnection;
     private boolean applicationClosing;
     private boolean roomRequestPending = false;
     private boolean leaveRequestPending;
@@ -601,8 +601,8 @@ public class DamkaFX extends Application {
     }
 
     private boolean isAuthenticated() {
-        return authenticatedUsername != null && activeRoomConnection != null
-                && activeRoomConnection.isConnected() && !authRequestPending;
+        return authenticatedUsername != null && activeServerConnection != null
+                && activeServerConnection.isConnected() && !authRequestPending;
     }
 
     private void submitAuthentication(AccountView.Credentials credentials) {
@@ -616,9 +616,9 @@ public class DamkaFX extends Application {
         String requestedUsername = credentials.username();
         String password = Base64.getEncoder().encodeToString(credentials.password().getBytes(StandardCharsets.UTF_8));
         String command = (credentials.signup() ? "SIGNUP " : "LOGIN ") + requestedUsername + " " + password;
-        activeRoomConnection = new RoomConnection(serverHost, serverPort, new RoomConnection.Listener() {
+        activeServerConnection = new ServerConnection(serverHost, serverPort, new ServerConnection.Listener() {
             @Override
-            public void onConnected(RoomConnection connection) {
+            public void onConnected(ServerConnection connection) {
                 onConnectionEvent(connection, () -> {
                     if (accountView != null) {
                         accountView.showError("Checking your account...");
@@ -627,7 +627,7 @@ public class DamkaFX extends Application {
             }
 
             @Override
-            public void onMessage(RoomConnection connection, String message) {
+            public void onMessage(ServerConnection connection, String message) {
                 onConnectionEvent(connection, () -> {
                     if (!handleAccountMessage(connection, message, requestedUsername)) {
                         enqueueServerMessage(message);
@@ -636,17 +636,17 @@ public class DamkaFX extends Application {
             }
 
             @Override
-            public void onDisconnected(RoomConnection connection, String detail) {
+            public void onDisconnected(ServerConnection connection, String detail) {
                 onConnectionEvent(connection, () -> {
                     showAccountScreen("Connection ended: " + detail + ". Log in to play again.");
                 });
             }
         });
-        activeRoomConnection.connect(command);
+        activeServerConnection.connect(command);
     }
 
     // Account/profile messages are independent of the ordered game animation queue.
-    private boolean handleAccountMessage(RoomConnection connection, String message, String requestedUsername) {
+    private boolean handleAccountMessage(ServerConnection connection, String message, String requestedUsername) {
         if (message.startsWith("AUTH_OK ")) {
             if (!message.equals("AUTH_OK " + requestedUsername) || !authRequestPending) {
                 return true;
@@ -736,17 +736,17 @@ public class DamkaFX extends Application {
     }
 
     // Network callbacks do not touch controls. Old connections cannot change a new match.
-    private void onConnectionEvent(RoomConnection connection, Runnable action) {
+    private void onConnectionEvent(ServerConnection connection, Runnable action) {
         Platform.runLater(() -> {
-            if (!applicationClosing && connection == activeRoomConnection) {
+            if (!applicationClosing && connection == activeServerConnection) {
                 action.run();
             }
         });
     }
 
     private void sendNetworkCommand(String command) {
-        if (activeRoomConnection != null && activeRoomConnection.isConnected()) {
-            activeRoomConnection.send(command);
+        if (activeServerConnection != null && activeServerConnection.isConnected()) {
+            activeServerConnection.send(command);
         }
     }
 
@@ -998,8 +998,8 @@ public class DamkaFX extends Application {
     }
 
     private void closeConnection() {
-        RoomConnection connection = activeRoomConnection;
-        activeRoomConnection = null;
+        ServerConnection connection = activeServerConnection;
+        activeServerConnection = null;
         authenticatedUsername = null;
         if (connection != null) {
             connection.close();
