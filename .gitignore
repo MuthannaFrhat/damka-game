@@ -47,3 +47,10 @@ bin/
 
 ### Generated demo recordings and disposable accounts ###
 /demo/output/
+*.mp4
+
+### Local books, presentations and learning materials ###
+/docs/
+/LEARNING.md
+/learning.md
+/record-demo.bat

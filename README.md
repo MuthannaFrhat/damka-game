@@ -79,11 +79,9 @@ Usernames are case-sensitive. Passwords are stored as salted hashes. Accounts an
 
 Online results are validated and recorded by the server. BOT moves are calculated locally, and completed results are reported to the server for the logged-in account. Signing out or disconnecting ends the current BOT session; unfinished games are not recorded or resumed after login.
 
-## Automated demo video
+## Automated demo
 
-Open the [recorded demo (MP4)](docs/demo/Damka_Demo.mp4): a short walkthrough at 1920 × 1080, including a complete online win, a clear winner dialog, saved profiles and Hard BOT play.
-
-Run `.\gradlew.bat demo` on Windows to record a complete online win, saved profiles and Hard BOT play. See the [demo instructions](demo/README.md) for FFmpeg installation, output files and rehearsal options.
+Run `.\gradlew.bat demo` on Windows to record a complete online win, saved profiles and Hard BOT play. Recordings are saved to `demo/output/` and excluded from Git. See the [demo instructions](demo/README.md) for FFmpeg installation, output files and rehearsal options.
 
 ## Tests
 
@@ -92,25 +90,3 @@ Run `.\gradlew.bat demo` on Windows to record a complete online win, saved profi
 ```
 
 The tests cover game rules, room messages over TCP, account authentication, and SQLite result storage.
-
-## Project book
-
-- [Project book (Hebrew PDF)](docs/project-book/Damka_Project_Book_TCP_Profile.pdf)
-- [Editable Word version for mentor comments](docs/project-book/Damka_Project_Book_TCP_Profile.docx)
-
-## Presentation
-
-The final presentation has 13 English slides with Hebrew speaker notes. It covers the technology stack, class responsibilities, TCP flow, BOT search, persistence, verification, learning challenges, and defined responsibility areas with AI assistance. The suggested schedule is 10 minutes of slides, a separate three-minute demonstration, and two minutes for questions. The demonstration is prepared separately and has no dedicated slide.
-
-- [Editable PowerPoint](docs/presentation/Damka_Presentation.pptx)
-- [Presentation PDF](docs/presentation/Damka_Presentation.pdf)
-- [Print handout: two slides per page, grayscale](docs/presentation/Damka_Handout_2up.pdf)
-- [Presenter notes (Hebrew)](docs/presentation/Presenter_Notes_HE.md)
-
-In PowerPoint, open the Notes pane or Presenter View to see the speaking notes.
-
-## Learn Minimax and Alpha–Beta
-
-A [two-slide depth-3 example](docs/presentation/minimax-depth3/README.md) shows BOT → human → BOT, the returned scores, and how `findBestMove()` selects the first move. It includes an editable PowerPoint, PDF, diagram and matching table.
-
-A [separate self-study walkthrough](docs/presentation/minimax/README.md) explains a real board position using 16 English slides and an offline interactive stepper. It follows copied boards, turns, recursive calls, returned scores and pruning against the project’s actual game code.

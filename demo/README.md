@@ -2,8 +2,6 @@
 
 Run one command to open the real game, complete an online match and demonstrate the Hard BOT. The demo uses JavaFX Robot for mouse clicks and keyboard input, and FFmpeg for MP4 recording.
 
-A [pre-recorded sample](../docs/demo/Damka_Demo.mp4) is included in the repository at **1920 × 1080**. It shows the winner's username in a clear result window. You can play that MP4 directly without installing FFmpeg.
-
 ## Run on Windows
 
 You need the project's Java 17+ setup, a desktop of at least **1800 × 900** (1920 × 1080 recommended), and FFmpeg on your PATH.
